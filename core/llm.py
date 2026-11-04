@@ -4,7 +4,7 @@ from __future__ import annotations
 import json, os, re
 from dotenv import load_dotenv
 load_dotenv()  # picks up LLM_API_KEY from .env locally; Streamlit Cloud exposes app secrets as env vars
-MODEL = os.getenv("LLM_MODEL", "claude-opus-5-5")
+MODEL = os.getenv("LLM_MODEL", "gemini-2.5-flash")
 _client = None
 
 
@@ -13,8 +13,8 @@ def client():
     key = os.getenv("LLM_API_KEY")
     if not key: return None
     if _client is None:
-        import anthropic
-        _client = anthropic.Anthropic(api_key=key, timeout=20.0, max_retries=1)
+        from google import genai
+        _client = genai.Client(api_key=key, http_options={"timeout": 20000})
     return _client
 
 
@@ -22,10 +22,8 @@ def _call(system: str, user: str, c=None) -> str | None:
     c = c or client()
     if c is None: return None
     try:
-        r = c.messages.create(model=MODEL, max_tokens=1500, system=system, output_config={"effort": "low"},
-                              messages=[{"role": "user", "content": user}])
-        if r.stop_reason == "refusal": return None
-        return next((b.text for b in r.content if b.type == "text"), None)
+        r = c.models.generate_content(model=MODEL, contents=user, config={"system_instruction": system, "max_output_tokens": 1500, "temperature": 0.2})
+        return r.text  # None when the response was blocked
     except Exception:
         return None
 

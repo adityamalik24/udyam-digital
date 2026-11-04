@@ -31,10 +31,10 @@ def test_guardrail_catches_bad_llm_output():
     assert G.check_reply("P01 at ₹1,099 Biz Fibre 100", q)
 
 class Fake:
-    def __init__(self, texts): self.texts, self.calls = list(texts), []; self.messages = self
-    def create(self, **k):
+    def __init__(self, texts): self.texts, self.calls = list(texts), []; self.models = self
+    def generate_content(self, **k):
         self.calls.append(k)
-        return NS(stop_reason="end_turn", content=[NS(type="text", text=self.texts.pop(0))])
+        return NS(text=self.texts.pop(0))
 
 MSG = "Clinic in Delhi, 6 staff, one location, have GSTIN, want email"
 
