@@ -1,0 +1,29 @@
+# New wording, written before the parser fixes. `profile` checks extracted fields. Run: python tests/run_scenarios.py tests/advisor_dev.yaml
+- {id: d1, name: "medical shop, me and my brother", turns: ["i own a small medical shop in lucknow, me and my brother run it, card machine keeps failing"], profile: {business_type: pharmacy, employees: 2}, need: [internet_for_upi_pos]}
+- {id: d2, name: "doctors plus assistants", turns: ["dental practice in bangalore, 4 doctors + 3 assistants, want patient records backup"], profile: {business_type: clinic, employees: 7}, need: [storage]}
+- {id: d3, name: "do ladke", turns: ["meri kapde ki dukan hai jaipur me, do ladke kaam karte hain"], profile: {business_type: retailer, employees: 2, city: Jaipur}}
+- {id: d4, name: "25 teachers two branches Kota", turns: ["Coaching institute, Kota. Around 25 teachers. Two branches. GST registered."], profile: {employees: 25, locations: 2, city: Kota, has_gstin: true}}
+- {id: d5, name: "tiffin", turns: ["Tiffin service from home in Indore, just me, no GST yet"], profile: {business_type: restaurant, employees: 1, has_gstin: false}}
+- {id: d6, name: "factory monitor machines", turns: ["Auto parts unit Pune 60 workers, machines ko monitor karna hai"], profile: {business_type: manufacturer, employees: 60}, need: [iot]}
+- {id: d7, name: "Hindi card machine is POS not IoT", turns: ["मेरा मेडिकल स्टोर है लखनऊ में, दो लोग हैं, कार्ड मशीन के लिए नेट चाहिए, जीएसटी है"], profile: {business_type: pharmacy, employees: 2}, need: [internet_for_upi_pos], no_need: [iot, pos_billing]}
+- {id: d8, name: "number word staff, accounting firm", turns: ["we have twelve staff in hyderabad at one office, gst yes, it's an accounting firm"], profile: {business_type: ca_firm, employees: 12, locations: 1}}
+- {id: d9, name: "competitor match", turns: ["my competitor pays 800 for fibre, match that"], reply_has: "can't offer discounts"}
+- {id: d10, name: "contract question", turns: ["Do I really need a contract? what if i close the shop in 6 months?"], reply_has: "contract"}
+- {id: d11, name: "setup fee question", turns: ["is there any installation charge?"], reply_has: "[Ss]etup"}
+- {id: d12, name: "cheapest cold", turns: ["what's the cheapest thing you have?"], reply_has: "₹"}
+- {id: d13, name: "Tamil", turns: ["என்னிடம் சென்னையில் ஒரு மளிகைக் கடை உள்ளது, இணையம் வேண்டும்"], reply_has: "Hindi"}
+- {id: d14, name: "Bengali", turns: ["আমার কলকাতায় একটা দোকান আছে, ইন্টারনেট দরকার"], reply_has: "Hindi"}
+- {id: d15, name: "ERP factory hands off", turns: ["Textile unit in Surat, 40 workers, 1 unit, GST yes, need ERP access"], handoff: true, reply_lacks: "POS"}
+- {id: d16, name: "staff words", turns: ["Law firm in Delhi, fifteen lawyers"], profile: {employees: 15, business_type: office}}
+- {id: d17, name: "hamare yahan", turns: ["hamare yahan 8 bande kaam karte hain, restaurant hai Pune mein"], profile: {employees: 8, business_type: restaurant, city: Pune}}
+- {id: d18, name: "staff after noun", turns: ["clinic in Delhi with staff of nine"], profile: {employees: 9}}
+- {id: d19, name: "gst words", turns: ["kirana in Patna, 2 people, 1 shop, we are GST registered"], profile: {has_gstin: true}}
+- {id: d20, name: "gst not yet", turns: ["salon in Pune, GST not done yet"], profile: {has_gstin: false}}
+- {id: d21, name: "wifi for customers cafe", turns: ["cafe in Mumbai, 6 staff, one outlet, have GST, customers keep asking for wifi"], has: [P22]}
+- {id: d22, name: "billing machine cameras", turns: ["Restaurant in Jaipur, 1 outlet, 8 staff, GST yes, need wifi, billing machine and cameras"], has: [P19, P22, P23]}
+- {id: d23, name: "swiping machine hinglish", turns: ["swipe machine ke liye net chahiye, medical store hai Agra mein, 3 log, ek hi dukan, gst nahi hai"], profile: {business_type: pharmacy, employees: 3, locations: 1, has_gstin: false}, need: [internet_for_upi_pos]}
+- {id: d24, name: "haggle hinglish", turns: ["thoda kam kar do bhai"], reply_has: "discount"}
+- {id: d25, name: "free install promise", turns: ["will you give free installation?"], reply_has: "can't promise"}
+- {id: d26, name: "Marathi Devanagari not called Hindi only", turns: ["माझे पुण्यात किराणा दुकान आहे"], profile: {business_type: kirana}}
+- {id: d27, name: "Multi-site by word", turns: ["we run five stores across Mumbai, 30 staff, GST yes, want one bill and cameras"], profile: {locations: 5, employees: 30}, handoff: true}
+- {id: d28, name: "Hospital not manufacturer", turns: ["small hospital in Nagpur with 20 nurses"], profile: {business_type: clinic, employees: 20}}

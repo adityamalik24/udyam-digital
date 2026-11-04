@@ -17,23 +17,26 @@ TIER2.update({"kanpur": "कानपुर", "agra": "आगरा", "varanasi"
 CITY_TIER = {**{c: 1 for c in TIER1}, **{c: 2 for c in TIER2}, **{c: 3 for c in TIER3}}
 HI_CITY = {v: k for d in (TIER1, TIER2, TIER3) for k, v in d.items()}
 
+# Recognised as places, but with no tier in our data, so the advisor asks instead of guessing.
+UNLISTED = ["kota", "goa", "udaipur", "jodhpur", "ajmer", "gwalior", "jabalpur", "mangalore", "hubli", "tirupati", "shimla", "jammu", "siliguri"]
 BTYPES = [("manufacturer", r"manufactur|factory|textile|garment unit|auto.?parts|plastic|moulding|packaging unit|printing press|furniture|food processing|workshop|फैक्ट्री|कारखाना|टेक्सटाइल|\bmill\b"),
-          ("restaurant", r"restaurant|cafe|café|hotel|dhaba|bakery chain|रेस्टोरेंट|रेस्तरां|ढाबा|होटल"), ("clinic", r"clinic|dental|dentist|doctor|hospital|diagnostic|physio|lab\b|क्लिनिक|डॉक्टर|अस्पताल"),
-          ("pharmacy", r"pharmacy|chemist|medical store|दवा|फार्मेसी|मेडिकल"), ("kirana", r"kirana|grocery|general store|किराना|परचून"), ("salon", r"salon|parlou?r|barber|सैलून|पार्लर"),
-          ("ca_firm", r"\bca\b|chartered accountant|accountan|सीए\b"), ("coaching", r"coaching|tuition|institute|pre.?school|कोचिंग|ट्यूशन"), ("office", r"law|lawyer|advocate|real estate|architect|insurance agen|travel agen|\boffice\b|ऑफिस|वकील"),
-          ("retailer", r"retail|showroom|boutique|stationery|hardware store|electronics|optician|mobile repair|sweet shop|bakery|apparel|gym|\bshop\b|\bstore\b|dukaan|dukan|दुकान")]
+          ("restaurant", r"restaurant|tiffin|cloud kitchen|caterer|catering|\bmess\b|cafe|café|hotel|dhaba|bakery chain|रेस्टोरेंट|रेस्तरां|ढाबा|होटल"), ("clinic", r"clinic|dental|dentist|doctor|hospital|diagnostic|physio|lab\b|क्लिनिक|डॉक्टर|अस्पताल"),
+          ("pharmacy", r"pharmacy|chemist|medical|दवा|फार्मेसी|मेडिकल"), ("kirana", r"kirana|grocery|general store|किराना|किराणा|परचून"), ("salon", r"salon|parlou?r|barber|सैलून|पार्लर"),
+          ("ca_firm", r"\bca\b|chartered accountant|account(an|ing)|सीए\b"), ("coaching", r"coaching|tuition|institute|pre.?school|कोचिंग|ट्यूशन"), ("office", r"law|lawyer|advocate|real estate|architect|insurance agen|travel agen|\boffice\b|ऑफिस|वकील"),
+          ("retailer", r"retail|showroom|boutique|stationery|hardware store|electronics|optician|mobile repair|sweet shop|bakery|apparel|gym|\bshops?\b|\bstores?\b|dukaan|dukan|दुकान")]
 NEED_RX = [("mobile_line", r"\bsim\b|sim card|mobile (line|plan|connection)|postpaid|सिम|मोबाइल (लाइन|प्लान)"),
-           ("internet_for_upi_pos", r"\bupi\b|यूपीआई|qr code|payment"), ("pos_billing", r"\bpos\b|billing|बिलिंग|inventory|cash counter"),
+           ("internet_for_upi_pos", r"\bupi\b|यूपीआई|qr code|payment|card machine|swip(e|ing)|कार्ड मशीन|स्वाइप"), ("pos_billing", r"\bpos\b|billing|बिलिंग|inventory|cash counter"),
            ("cloud_email", r"e-?mail|ईमेल|office suite|google workspace|gmail"), ("storage", r"storage|backup|back up|बैकअप|स्टोरेज"),
            ("cctv", r"cctv|camera|सीसीटीवी|कैमरा|surveillance"), ("firewall", r"firewall|फ़ायरवॉल"), ("security", r"antivirus|security|ransomware|hack|सुरक्षा|सिक्योरिटी|data safe|डेटा"),
            ("customer_messaging", r"whats ?app|व्हाट्सएप|catalogue|customer messag"), ("sms", r"\bsms\b|एसएमएस|bulk message"), ("wifi", r"wi-?fi|वाईफाई|guest network"),
            ("website", r"website|वेबसाइट|domain"), ("dedicated_bandwidth", r"leased ?line|dedicated|लीज़्ड|लीज्ड|लीज लाइन|\bsla\b"), ("high_speed", r"\b1 ?g(bps)?\b|gigabit|100 ?mbps dedicated"),
-           ("iot", r"\biot\b|machine monitoring|sensor|आईओटी|मशीन"), ("fleet", r"fleet|gps|vehicle track|truck|गाड़ी|गाड़ियों"), ("telephony", r"\bivr\b|sip\b|telephony|call recording"), ("toll.free", r"toll.?free|1800|टोल"),
+           ("iot", r"\biot\b|machine monitoring|monitor\w*\W+(\w+\W+){0,2}machines?|machines?\W+(\w+\W+){0,2}monitor|sensor|आईओटी|(?<!कार्ड )(?<!बिलिंग )(?<!स्वाइप )मशीन"), ("fleet", r"fleet|gps|vehicle track|truck|गाड़ी|गाड़ियों"), ("telephony", r"\bivr\b|sip\b|telephony|call recording"), ("toll.free", r"toll.?free|1800|टोल"),
            ("static_ip", r"static ip|स्टैटिक"), ("sdwan", r"sd-?wan|central(ly)? manag|one dashboard"), ("failover", r"failover|backup (internet|link)|फेलओवर"),
            ("uptime", r"uptime|downtime|never go down|keeps? going down|drops?\b|कटता|बंद हो जाता"), ("internet", r"internet|broadband|fibre|fiber|\b5g\b|airfiber|wifi|net connection|इंटरनेट|ब्रॉडबैंड|फाइबर|\bnet\b")]
-HINDI_NUM = {"ek": 1, "do": 2, "teen": 3, "char": 4, "chaar": 4, "paanch": 5, "panch": 5, "chhe": 6, "cheh": 6, "saat": 7, "aath": 8, "nau": 9, "das": 10, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10,
+HINDI_NUM = {"ek": 1, "do": 2, "teen": 3, "char": 4, "chaar": 4, "paanch": 5, "panch": 5, "chhe": 6, "cheh": 6, "saat": 7, "aath": 8, "nau": 9, "das": 10, "gyarah": 11, "barah": 12, "pandrah": 15, "bees": 20, "pachees": 25, "tees": 30, "pachas": 50, "eleven": 11, "twelve": 12, "thirteen": 13, "fourteen": 14, "fifteen": 15, "sixteen": 16, "eighteen": 18, "twenty": 20, "thirty": 30, "forty": 40, "fifty": 50, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10,
              "एक": 1, "दो": 2, "तीन": 3, "चार": 4, "पांच": 5, "पाँच": 5, "छह": 6, "छः": 6, "सात": 7, "आठ": 8, "नौ": 9, "दस": 10}
-NUM = r"(?<![a-z\d])(\d+|" + "|".join(HINDI_NUM) + ")"
+NUM = r"(?<![a-z\d])(\d+|(?:" + "|".join(HINDI_NUM) + r")(?![a-z]))"
+ROLES = r"doctors?|nurses?|assistants?|receptionists?|teachers?|lawyers?|advocates?|accountants?|helpers?|ladke|ladkiyan|bande|banda|karigar|mazdoor|technicians?|cooks?|waiters?|engineers?|operators?|डॉक्टर|नर्स|टीचर|शिक्षक|लड़के|कारीगर"
 HING = re.compile(r"\b(hai|hain|nahi|nahin|chahiye|mera|meri|mere|hum|humara|hamara|mujhe|kya|kitna|kitne|aur|bhi|karna|karni|ke liye|kaise|batao|bataiye|haan|sirf|dukaan|dukan|wala|wali|log|lagega|kyun|abhi|accha|acha)\b", re.I)
 ENG = re.compile(r"\b(the|is|are|my|we|have|want|need|please|what|how|for|with|and|our|i|about|can|you|only|staff|employees|business|shop|looking)\b", re.I)
 DEVANAGARI = re.compile(r"[ऀ-ॿ]")
@@ -70,6 +73,11 @@ TXT = {
  "promise0": {"en": "I can't promise a specific date or anything free; it depends on the plan and your site. Let's pick the plan first.", "hi": "मैं कोई तय तारीख या मुफ़्त चीज़ का वादा नहीं कर सकता। पहले प्लान चुन लेते हैं।", "hinglish": "Main koi fixed date ya free cheez ka promise nahi kar sakta. Pehle plan choose kar lete hain."},
  "proceed": {"en": "Great. Please open the **Quote** page to confirm your plan.", "hi": "बढ़िया। प्लान कन्फर्म करने के लिए **Quote** पेज खोलें।", "hinglish": "Badhiya. Plan confirm karne ke liye **Quote** page kholiye."},
  "price_is": {"en": "Your plan stays at ₹{m:,} per month.", "hi": "आपका प्लान ₹{m:,} प्रति माह ही रहेगा।", "hinglish": "Aapka plan ₹{m:,} per month hi rahega."},
+ "regional": {"en": "Sorry, I can only chat in English or Hindi for now. Please continue in either one, or type \"specialist\" and I'll save your request for an Accel Business specialist.\n\nक्षमा करें, अभी मैं केवल अंग्रेज़ी या हिंदी में बात कर सकता हूँ। कृपया इनमें से किसी एक में लिखें, या \"specialist\" लिखें।"},
+ "faq_contract": {"en": "Plans have a minimum contract of {lo} to {hi} months depending on the product, and your quote shows the exact figure. I don't have early-exit terms, so I won't guess: please check them with a specialist before you sign.", "hi": "प्लान का न्यूनतम अनुबंध प्रोडक्ट के अनुसार {lo} से {hi} महीने का होता है, सही अवधि आपके कोटेशन में दिखेगी। जल्दी बंद करने की शर्तें मेरे पास नहीं हैं, इसलिए साइन करने से पहले विशेषज्ञ से पूछ लें।", "hinglish": "Plans ka minimum contract product ke hisaab se {lo} se {hi} months ka hota hai, exact period quote mein dikhega. Early exit ki terms mere paas nahi hain, isliye sign karne se pehle specialist se confirm kar lijiye."},
+ "faq_setup": {"en": "The one-time setup fee depends on the product, from ₹{lo:,} to ₹{hi:,}. Your quote shows the exact total before you commit.", "hi": "एक बार का सेटअप शुल्क प्रोडक्ट पर निर्भर है, ₹{lo:,} से ₹{hi:,} तक। सही राशि आपके कोटेशन में दिखेगी।", "hinglish": "One-time setup fee product par depend karti hai, ₹{lo:,} se ₹{hi:,} tak. Exact amount quote mein dikhega."},
+ "faq_your_terms": {"en": "For your plan: setup ₹{s:,} once, and a {c}-month minimum contract. I don't have early-exit terms, so please check them with a specialist before you sign.", "hi": "आपके प्लान में: सेटअप ₹{s:,} एक बार, और न्यूनतम {c} महीने का अनुबंध। जल्दी बंद करने की शर्तें विशेषज्ञ से पूछ लें।", "hinglish": "Aapke plan mein: setup ₹{s:,} ek baar, aur minimum {c} months ka contract. Early exit ki terms specialist se confirm kar lijiye."},
+ "cheapest": {"en": "Our lowest prices start at ₹{a:,} per month for {an} (mobile only) and ₹{b:,} per month for {bn} (internet at your site). The right one depends on your business.", "hi": "सबसे कम कीमत ₹{a:,} प्रति माह {an} (केवल मोबाइल) और ₹{b:,} प्रति माह {bn} (दुकान पर इंटरनेट) से शुरू है। सही प्लान आपके बिज़नेस पर निर्भर है।", "hinglish": "Sabse kam price ₹{a:,} per month {an} (sirf mobile) aur ₹{b:,} per month {bn} (site par internet) se shuru hai. Sahi plan aapke business par depend karta hai."},
  "more_help": {"en": "Could you tell me what you need it to do? For example, internet, email, CCTV or a mobile line.", "hi": "क्या बता सकते हैं कि आपको क्या चाहिए? जैसे इंटरनेट, ईमेल, सीसीटीवी या मोबाइल लाइन।", "hinglish": "Kya bata sakte hain ki aapko kya chahiye? Jaise internet, email, CCTV ya mobile line."},
 }
 NEEDS_CANON = {"toll.free": "toll_free"}
@@ -102,8 +110,16 @@ def extract_profile(text: str, p: Profile, awaiting: str | None = None) -> dict:
     def num(s): return HINDI_NUM.get(s, int(s) if s.isdigit() else None)
     m = re.search(NUM + r"\s*\+?\s*(?:staff|employee|people|person|log\b|workers?|member|team|लोग|कर्मचारी|स्टाफ)", t) or re.search(r"(?:staff|employees?|team)\s*(?:of|:|is|are|hai|hain)?\s*" + NUM + r"\b", t)
     if m and num(m.group(1)) is not None: u["employees"] = num(m.group(1))
+    elif (roles := re.findall(NUM + rf"\s*(?:{ROLES})(?![a-z])", t)):
+        u["employees"] = sum(num(x) for x in roles)
+    elif (m := re.search(NUM + r"\s+of us\b", t)) or (m := re.search(r"\bhum\s+" + NUM + r"\b", t)):
+        u["employees"] = num(m.group(1))
+    elif re.search(r"\b(?:wife|husband|brother|sister|son|daughter|partner) and (?:me|i)\b", t):
+        u["employees"] = 2
+    elif re.search(r"\b(me|main|i) (and|aur) (my|mera|meri) \w+", t) or re.search(r"मैं और मेर[ाी] ", t):
+        u["employees"] = 2
     if re.search(r"\b(just me|only me|myself|akela|sirf main)\b|अकेला|सिर्फ मैं", t): u["employees"] = 1
-    m = re.search(NUM + r"\s*(?:outlets?|branch(?:es)?|locations?|sites?|stores?|shops?|offices?|clinics?|restaurants?|units?|salons?|pharmac(?:y|ies)|kiranas?|firms?|centres?|centers?|cafes?|hotels?|dukaan|dukan|factories|ब्रांच|लोकेशन|आउटलेट|दुकानें|दुकान|शाखा)", t)
+    m = re.search(NUM + r"\s*(?:outlets?|branch(?:es)?|locations?|sites?|stores?|shops?|offices?|clinics?|restaurants?|units?|salons?|pharmac(?:y|ies)|kiranas?|firms?|centres?|centers?|cafes?|plants?|workshops?|hotels?|dukaan|dukan|factories|ब्रांच|लोकेशन|आउटलेट|दुकानें|दुकान|शाखा)", t)
     if m and num(m.group(1)) is not None: u["locations"] = num(m.group(1))
     if re.search(r"single (shop|location|site|store|office)|only one (shop|location|site|branch)|one branch|ek hi|एक ही", t): u["locations"] = 1
     for c, tier in CITY_TIER.items():
@@ -114,6 +130,9 @@ def extract_profile(text: str, p: Profile, awaiting: str | None = None) -> dict:
         m = re.search(r"\b(?:in|at|from|near|based in)\s+([A-Za-z]{3,})(?:\s+(?:mein|me|city)\b)?", text)
         if m and m.group(1).lower() not in {"the", "our", "my", "one", "english", "hindi", "town", "tier", "metro", "india", "business", "this", "that", "all", "each", "small"}:
             u["city"] = m.group(1).title()
+    if "city" not in u:
+        for c in UNLISTED:
+            if re.search(rf"\b{c}\b", t): u["city"] = c.title(); break
     m = re.search(r"tier[- ]?([123])|टियर[- ]?([123])", t)
     if m: u["city_tier"] = int(m.group(1) or m.group(2)); u.setdefault("city", p.city or f"Tier {u['city_tier']} city")
     elif re.search(r"\b(village|gaon|small town|chhota sheher|chhota town)\b|गाँव|गांव|छोटा शहर|कस्बा", t): u["city_tier"] = 3; u.setdefault("city", p.city or "your town")
@@ -126,6 +145,8 @@ def extract_profile(text: str, p: Profile, awaiting: str | None = None) -> dict:
     m = re.search(NUM + r"\s*(?:sims?|lines?|सिम)", t)
     if m and num(m.group(1)): u["sim_lines"] = num(m.group(1))
     m = re.search(NUM + r"\s*(?:cameras?|cctv|कैमरे|कैमरा)", t)
+    if m and num(m.group(1)): u["cameras"] = num(m.group(1))
+    m = re.search(r"(?:cameras?|cctv)\W+" + NUM + r"\s+of them", t)
     if m and num(m.group(1)): u["cameras"] = num(m.group(1))
     m = re.search(NUM + r"\s*(?:machines?|मशीन)", t)
     if m and num(m.group(1)): u["devices_iot"] = num(m.group(1))
@@ -279,12 +300,31 @@ def turn(s: State, raw: str, llm_client=None) -> str:
     return reply
 
 
+def _faq(s, text, lang) -> str | None:
+    """Answers from catalogue or quote figures only."""
+    cat = catalogue().values()
+    if G.FAQ_CONTRACT.search(text) or G.FAQ_SETUP.search(text):
+        if s.rec and s.rec.quote:
+            return _lang_text("faq_your_terms", lang, s=s.rec.quote.setup, c=s.rec.quote.contract)
+        if G.FAQ_CONTRACT.search(text):
+            c = [p.contract for p in cat]
+            return _lang_text("faq_contract", lang, lo=min(c), hi=max(c))
+        f = [p.setup for p in cat]
+        return _lang_text("faq_setup", lang, lo=min(f), hi=max(f))
+    if not s.rec and G.CHEAPEST.search(text):
+        c = catalogue()
+        return _lang_text("cheapest", lang, a=c["P07"].monthly, an=c["P07"].name, b=c["P04"].monthly, bn=c["P04"].name)
+    return None
+
+
 def _route(s, text, found, lang, llm_client):
     sensitive = [f for f in found if f != "GSTIN"]
     if sensitive:
         u = extract_profile(re.sub(r"\[[^\]]*removed\]", "", text), s.profile, None)
         _merge(s, u)
         return _join(_lang_text("pii", lang), _steer(s))
+    if G.REGIONAL.search(text) and not DEVANAGARI.search(text):
+        return _join(TXT["regional"]["en"], _steer(s))
     if G.INJECTION.search(text):
         return _join(_lang_text("injection", lang), _steer(s))
     if G.FRUSTRATED.search(text):
@@ -309,12 +349,19 @@ def _route(s, text, found, lang, llm_client):
             pr = catalogue()[near]
             t += _lang_text("near", lang, name=pr.name, desc=pr.description.lower())
         _merge(s, {k: v for k, v in u.items() if k != "needs"})
+        if s.profile.business_type == "manufacturer":  # custom need at a factory goes to a person
+            _do_handoff(s, "manufacturer_custom")
+            return _join(t, _lang_text("custom", lang))
         return _join(t, _steer(s))
     if G.PROMISE_ASK.search(text):
         if s.rec and s.rec.quote:
             l = max(s.rec.quote.lines, key=lambda x: x.install_days)
             return _lang_text("promise", lang, name=l.name, d=l.install_days)
         return _join(_lang_text("promise0", lang), _steer(s))
+    faq = _faq(s, text, lang)
+    if faq:
+        _merge(s, {k: v for k, v in u.items() if k != "needs"})
+        return _join(faq, _steer(s) if not (s.rec and s.rec.quote) else "")
     if s.rec and s.rec.quote and G.PROCEED.search(text) and not u:
         return _lang_text("proceed", lang)
     if s.rec and s.rec.alternative and G.CHEAPER_ASK.search(text) and not u:
@@ -332,7 +379,8 @@ def _route(s, text, found, lang, llm_client):
         s.profile.locations = s.profile.locations or 1
         s.profile.employees = s.profile.employees or 1
         s.profile.business_type = s.profile.business_type or "other"
-    f = next_question(s)
+    # A town we can't serve ends the discovery: further questions would waste the owner's time.
+    f = None if s.profile.city_tier == 3 else next_question(s)
     if f:
         s.awaiting = f; s.rec = None
         if f not in s.asked: s.asked.append(f)

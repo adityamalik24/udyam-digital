@@ -65,3 +65,11 @@ def test_llm_cannot_inject_bad_fields(monkeypatch):
 def test_no_key_means_no_llm(monkeypatch):
     monkeypatch.delenv("LLM_API_KEY", raising=False)
     assert llm.client() is None
+
+
+def test_extra_scenario_sets_pass():
+    import subprocess, sys, pathlib
+    root = pathlib.Path(__file__).parent
+    for f in ("advisor_dev.yaml", "advisor_unseen.yaml"):
+        r = subprocess.run([sys.executable, str(root / "run_scenarios.py"), str(root / f)], capture_output=True, text=True)
+        assert r.returncode == 0, r.stdout[-800:]

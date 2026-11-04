@@ -118,7 +118,7 @@ text(s, .5, 2.65, 8.8, 2, ["The LLM only fills profile gaps and rewords replies.
  "Identifiers are stripped from chat before storage. Document images stay in memory and never reach the LLM."], 13)
 
 # 7 Signals
-s = slide("Customers who chase status more often churn more: the case for a tracker")
+s = slide("Customers who chase status more churn more")
 bars(s, .5, .8, 4.6, 3.85, ["1","2","3","4","5"], [5.9,14.3,11.7,20.0,27.9], "6-month churn (%) by number of status-chase calls", XL_CHART_TYPE.COLUMN_CLUSTERED, "0.0", vmax=35)
 text(s, 5.3, .95, 4, 3.7, ["NPS also falls from 7.5 to 6.0 across the same range (p<0.001). This is a correlation, so a pilot should test it.",
  "Referral converts best (14.8%) at ₹4,099, but churn is 24.6% against 9.6% for field sales. The churn gap isn't significant across sources (p=0.13), so watch it.",

@@ -36,22 +36,26 @@ INJECTION = re.compile(
     r"|system prompt|jailbreak|developer mode|\bdan mode\b|you are now|act as|pretend (to be|you)|set (the )?price to|make (the )?price|apne instructions|अपने निर्देश", re.I)
 DISCOUNT = re.compile(
     r"discount|% ?off|\boff\b.*\d|\d+ ?(%|percent|प्रतिशत)|cheaper price|lower the price|reduce the price|best price|last price|free me|for free|mufat|muft|मुफ़्त|मुफ्त|"
-    r"कम कर|छूट|डिस्काउंट|kam kar|kam karo|sasta kar|sasta do|chhoot|chhut|negotiat|(at|for|in)\s*(₹|rs\.?\s*)\d|\d+\s*(rupees|rupaye|रुपये)\s*(me|mein|में)|match .*price|haggle|deal do", re.I)
+    r"कम कर|छूट|डिस्काउंट|kam kar|kam karo|sasta kar|sasta do|chhoot|chhut|negotiat|(at|for|in)\s*(₹|rs\.?\s*)\d|\d+\s*(rupees|rupaye|रुपये)\s*(me|mein|में)|match .*price|match (that|this|it)\b|competitor.{0,30}(pay|charg|price|\d)|haggle|deal do", re.I)
 OFF_TOPIC = re.compile(
     r"\b(weather|joke|poem|cricket|ipl|recipe|movie|song|capital of|prime minister|president|election|politics|homework|write (me )?(a|some) |python code|horoscope|stock tip|bitcoin|crypto|mausam|chutkula|gaana)\b|मौसम|चुटकुला|कविता|क्रिकेट|फिल्म", re.I)
 FRUSTRATED = re.compile(
-    r"useless|waste of time|frustrat|fed up|annoy|stupid|pathetic|worst|talk to (a |an )?(human|person|agent|someone|executive|representative)|real person|call me|call my|human agent|"
+    r"\bspecialist\b|विशेषज्ञ|useless|waste of time|frustrat|fed up|annoy|stupid|pathetic|worst|talk to (a |an )?(human|person|agent|someone|executive|representative)|real person|call me|call my|human agent|"
     r"bakwas|bekar|bekaar|pareshan|insaan se|kisi se baat|बकवास|बेकार|परेशान|इंसान से|किसी से बात|गुस्सा", re.I)
 CONFUSED = re.compile(r"don'?t understand|do not understand|confus|what do you mean|samajh nahi|samjha nahi|nahi samjha|समझ नहीं|समझा नहीं", re.I)
-PROMISE_ASK = re.compile(r"install.*(when|date|tomorrow|today|kab)|when.*install|kab (tak|lagega|hoga|aayega)|by tomorrow|कब|free (upgrade|router|install)|guarantee|upgrade free", re.I)
+PROMISE_ASK = re.compile(r"how long|kitne din|कितने दिन|install.*(when|date|tomorrow|today|kab)|when.*install|kab (tak|lagega|hoga|aayega)|by tomorrow|कब|free (upgrade|router|install)|guarantee|upgrade free", re.I)
 PROCEED = re.compile(r"^\W*(ok(ay)?\W+)?(proceed|go ahead|let'?s go|buy|confirm|book it|place order|done|yes,? (book|proceed)|aage badho|kar do|chalega|theek hai|ठीक है|आगे बढ़ो|बुक करो)\b", re.I)
 CHEAPER_ASK = re.compile(r"cheaper|too (costly|expensive)|mehenga|mehnga|sasta|महंगा|सस्ता|budget", re.I)
+FAQ_CONTRACT = re.compile(r"\bcontract\b|lock.?in|अनुबंध|कॉन्ट्रैक्ट", re.I)
+FAQ_SETUP = re.compile(r"setup|set up (fee|cost|charge)|install\w* (fee|charge|cost)|one.?time|sign.?up fee|lagwane ka|सेटअप|इंस्टॉलेशन", re.I)
+CHEAPEST = re.compile(r"cheapest|lowest (price|plan)|sabse sasta|सबसे सस्ता", re.I)
+REGIONAL = re.compile(r"[\u0980-\u09FF\u0A00-\u0A7F\u0A80-\u0AFF\u0B80-\u0BFF\u0C00-\u0C7F\u0C80-\u0CFF\u0D00-\u0D7F]")
 NOT_IN_CATALOGUE = [
     (re.compile(r"satellite|starlink|vsat|सैटेलाइट", re.I), "satellite internet", "P04"),
     (re.compile(r"landline|लैंडलाइन|epabx|pbx", re.I), "a landline or PBX", "P12"),
     (re.compile(r"\b(dth|tv|ott|netflix|hotstar|iptv|prime video)\b|टीवी", re.I), "TV or OTT plans", None),
     (re.compile(r"\b(laptop|desktop|computer|printer|tablet|phone handset|mobile phone)s?\b", re.I), "hardware such as computers or phones", "P19"),
-    (re.compile(r"\b(erp|tally|crm|sap|payroll|accounting software)\b", re.I), "ERP or accounting software", "P19"),
+    (re.compile(r"\b(erp|tally|crm|sap|payroll|accounting software)\b", re.I), "ERP or accounting software", None),
     (re.compile(r"\b(vpn|mpls)\b", re.I), "VPN or MPLS", "P10"),
     (re.compile(r"\b(loan|insurance|credit card|payment gateway)\b|लोन|बीमा", re.I), "financial products", None),
     (re.compile(r"\b(10|25|50) ?g(bps)?\b|dark fibre|data ?cent(er|re)|colocation", re.I), "that kind of data-centre or ultra-high-speed service", "P06"),
@@ -94,6 +98,6 @@ def check_reply(reply: str, q: Quote | None, alt: Quote | None = None, excluded:
     for n in named:
         if q and n in {l.name for l in q.lines} and n.lower() not in reply.lower(): probs.append(f"{n} missing")
     if CODE.search(reply): probs.append("internal product code shown")
-    if BAD_PROMISE.search(reply): probs.append("unsupported promise")
+    if BAD_PROMISE.search(re.sub(r"toll[- ]free", "", reply, flags=re.I)): probs.append("unsupported promise")
     if redact(reply)[1]: probs.append("identifier in reply")
     return probs

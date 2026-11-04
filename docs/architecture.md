@@ -1,5 +1,9 @@
 # Architecture
 
+![Architecture](architecture.png)
+
+Mermaid source of the same flow:
+
 ```mermaid
 flowchart TD
   U[Owner on phone] --> UI[Streamlit pages: Advisor, Quote, Consent, KYC, Tracker]

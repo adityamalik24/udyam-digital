@@ -27,6 +27,12 @@ def run(sc):
     if sc.get("lang") and s.profile.language != sc["lang"]: errs.append(f"lang {s.profile.language}")
     if sc.get("handoff") and not s.handoff: errs.append("no handoff")
     if sc.get("no_rec") and items: errs.append("unexpected bundle")
+    for k, v in sc.get("profile", {}).items():
+        if getattr(s.profile, k) != v: errs.append(f"{k}={getattr(s.profile, k)} want {v}")
+    for n in sc.get("need", []):
+        if n not in s.profile.needs: errs.append(f"need {n} missing from {s.profile.needs}")
+    for n in sc.get("no_need", []):
+        if n in s.profile.needs: errs.append(f"wrong need {n}")
     if sc.get("reply_price_same") and not (s.rec and s.rec.quote and s.rec.quote.monthly == prev and f"{prev:,}" in reply): errs.append("price changed or missing")
     if "max_asked" in sc and len(s.asked) > sc["max_asked"]: errs.append(f"asked {s.asked}")
     if len(s.asked) > 6: errs.append(f"too many questions {s.asked}")
@@ -37,7 +43,7 @@ def run(sc):
 
 
 def main():
-    path = pathlib.Path(__file__).with_name("advisor_scenarios.yaml")
+    path = pathlib.Path(sys.argv[1]) if len(sys.argv) > 1 else pathlib.Path(__file__).with_name("advisor_scenarios.yaml")
     fails = 0
     scs = yaml.safe_load(path.read_text(encoding="utf-8"))
     for sc in scs:
