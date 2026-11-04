@@ -16,3 +16,5 @@
 | Secrets | The API key comes from an environment variable. `.env` and the database are gitignored. |
 
 **Not production-ready.** Before real use, this needs real authentication (the prototype has one demo user), encryption at rest for SQLite, audit logging, a processor agreement with the LLM vendor, a named grievance contact, and legal review of retention periods.
+
+**LLM provider.** The prototype uses the free Gemini API tier, where the provider may use submitted text to improve its products. Only redacted chat text is sent, and all data here is synthetic. Real customers would need a paid tier with a no-training commitment.

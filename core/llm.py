@@ -4,7 +4,8 @@ from __future__ import annotations
 import json, os, re, time
 from dotenv import load_dotenv
 load_dotenv()  # picks up LLM_API_KEY from .env locally; Streamlit Cloud exposes app secrets as env vars
-MODEL = os.getenv("LLM_MODEL", "gemini-flash-lite-latest")
+# Free-tier models have separate quotas, so a busy or exhausted one falls through to the next.
+MODELS = [os.getenv("LLM_MODEL", "gemini-flash-lite-latest"), "gemini-3.8-flash"]
 _client = None
 _paused_until = 0.0  # after a rate limit, skip calls instead of stalling the chat
 last_error: str | None = None  # shown on the Advisor page, so a silent fallback is visible
@@ -24,14 +25,16 @@ def _call(system: str, user: str, c=None) -> str | None:
     c = c or client()
     global _paused_until, last_error
     if c is None or time.time() < _paused_until: return None
-    try:
-        r = c.models.generate_content(model=MODEL, contents=user, config={"system_instruction": system, "max_output_tokens": 1500, "temperature": 0.2})
-        last_error = None
-        return r.text  # None when the response was blocked
-    except Exception as e:
-        last_error = type(e).__name__
-        if getattr(e, "code", None) in (429, 503): _paused_until = time.time() + 30
-        return None
+    for model in MODELS:
+        try:
+            r = c.models.generate_content(model=model, contents=user, config={"system_instruction": system, "max_output_tokens": 1500, "temperature": 0.2})
+            last_error = None
+            return r.text  # None when the response was blocked
+        except Exception as e:
+            last_error = type(e).__name__
+            if getattr(e, "code", None) not in (429, 503): return None
+    _paused_until = time.time() + 30  # every model is limited: stop trying for a while
+    return None
 
 
 EXTRACT_SYS = """Extract a small-business profile from one customer message for a telecom advisor.

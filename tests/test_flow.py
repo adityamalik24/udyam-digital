@@ -62,6 +62,20 @@ def test_llm_cannot_inject_bad_fields(monkeypatch):
     s = advisor.State(); advisor.turn(s, "hello there")
     assert s.profile.needs == [] and s.profile.employees is None and s.profile.has_gstin is None
 
+def test_busy_model_falls_through_then_pauses(monkeypatch):
+    monkeypatch.setattr(llm, "_paused_until", 0.0)
+    class Busy(Exception): code = 503
+    class C:
+        def __init__(self, fail): self.fail, self.n, self.models = fail, 0, self
+        def generate_content(self, **k):
+            self.n += 1
+            if self.n <= self.fail: raise Busy()
+            return NS(text="ok")
+    c = C(1); assert llm._call("s", "u", c) == "ok" and c.n == 2
+    c = C(9); assert llm._call("s", "u", c) is None and c.n == 2
+    assert llm._call("s", "u", c) is None and c.n == 2  # paused, no further calls
+    monkeypatch.setattr(llm, "_paused_until", 0.0)
+
 def test_no_key_means_no_llm(monkeypatch):
     monkeypatch.delenv("LLM_API_KEY", raising=False)
     assert llm.client() is None

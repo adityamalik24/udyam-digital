@@ -10,7 +10,7 @@ streamlit run app/Home.py
 pytest -q
 python tests/run_scenarios.py
 ```
-Set `LLM_API_KEY` to enable LLM extraction and rewording. Without it the advisor is fully functional on its deterministic parser, in English, Hindi and Hinglish.
+Set `LLM_API_KEY` (free Gemini key) in `.env` to enable LLM extraction and rewording. It can hit free-tier limits, in which case the app falls back to the parser and shows a notice. Without it the advisor is fully functional on its deterministic parser, in English, Hindi and Hinglish.
 Deploy on Streamlit Community Cloud with `app/Home.py` as the entrypoint and the key in app secrets.
 
 ## Advisor testing
