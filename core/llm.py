@@ -1,11 +1,13 @@
 """Optional LLM layer. Only redacted text goes out, and only fields or wording come back.
 Every failure returns None so the deterministic advisor carries on."""
 from __future__ import annotations
-import json, os, re
+import json, os, re, time
 from dotenv import load_dotenv
 load_dotenv()  # picks up LLM_API_KEY from .env locally; Streamlit Cloud exposes app secrets as env vars
-MODEL = os.getenv("LLM_MODEL", "gemini-2.5-flash")
+MODEL = os.getenv("LLM_MODEL", "gemini-flash-lite-latest")
 _client = None
+_paused_until = 0.0  # after a rate limit, skip calls instead of stalling the chat
+last_error: str | None = None  # shown on the Advisor page, so a silent fallback is visible
 
 
 def client():
@@ -20,11 +22,15 @@ def client():
 
 def _call(system: str, user: str, c=None) -> str | None:
     c = c or client()
-    if c is None: return None
+    global _paused_until, last_error
+    if c is None or time.time() < _paused_until: return None
     try:
         r = c.models.generate_content(model=MODEL, contents=user, config={"system_instruction": system, "max_output_tokens": 1500, "temperature": 0.2})
+        last_error = None
         return r.text  # None when the response was blocked
-    except Exception:
+    except Exception as e:
+        last_error = type(e).__name__
+        if getattr(e, "code", None) in (429, 503): _paused_until = time.time() + 30
         return None
 
 

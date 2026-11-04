@@ -2,6 +2,7 @@
 import os, re, sys, pathlib, tempfile
 sys.path.insert(0, str(pathlib.Path(__file__).parents[1]))
 os.environ.setdefault("UDYAM_DB", os.path.join(tempfile.mkdtemp(), "t.db"))
+if not os.getenv("LIVE_LLM"): os.environ["LLM_API_KEY"] = ""  # offline unless asked
 import yaml
 from core.advisor import State, turn
 from core.guardrails import check_reply

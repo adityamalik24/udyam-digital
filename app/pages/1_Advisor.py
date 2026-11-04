@@ -18,5 +18,7 @@ if prompt := st.chat_input("Type here / यहाँ लिखें"):
     # Only the redacted form of what the user typed is kept, so identifiers vanish from the transcript too.
     st.session_state.chat += [("user", s.history[-2][1]), ("assistant", reply)]
     st.rerun()
+from core import llm
+if llm.last_error: st.caption("AI wording is unavailable right now, so replies use standard text. Plans and prices are unaffected.")
 if s.rec and s.rec.quote:
     c.link("pages/2_Quote.py", label=t["quote"], icon="🧾")

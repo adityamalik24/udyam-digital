@@ -373,7 +373,7 @@ def _route(s, text, found, lang, llm_client):
         s.profile.needs = [n for n in s.profile.needs if n not in u["needs"]]
         u = {k: v for k, v in u.items() if k != "needs"}
     _merge(s, u)
-    _merge_llm(s, text, u)
+    if next_question(s): _merge_llm(s, text, u)  # the parser already has everything otherwise
     if u.get("only") or (s.profile.needs == ["mobile_line"]):
         # A mobile-only request needs no site count; a staff count of 1 satisfies every P07 rule.
         s.profile.locations = s.profile.locations or 1
