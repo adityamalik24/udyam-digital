@@ -7,7 +7,7 @@ import pytest
 from streamlit.testing.v1 import AppTest
 from core.advisor import State, turn
 
-@pytest.mark.parametrize("page", ["Home.py", "pages/1_Advisor.py", "pages/2_Quote.py", "pages/3_Consent.py", "pages/4_KYC.py", "pages/5_Tracker.py"])
+@pytest.mark.parametrize("page", ["Home.py", "pages/1_Advisor.py", "pages/2_Quote.py", "pages/3_Consent.py", "pages/4_KYC.py", "pages/5_Tracker.py", "pages/6_Partner_Queue.py"])
 def test_pages_render(page):
     at = AppTest.from_file(str(ROOT / "app" / page), default_timeout=30).run()
     assert not at.exception

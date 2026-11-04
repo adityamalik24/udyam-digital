@@ -93,7 +93,7 @@ def check_applicant(docs: dict[str, Extracted], entered_gstin: str | None = None
             out["gstin_masked"] = mask(record["gstin"]); out["registry_status"] = record["status"]
             if differs:
                 add("reject", "gst_number_mismatch",
-                    f"The GSTIN printed on the certificate (ending {f.get('gstin','')[-4:]}) does not match the registry record for this business (ending {record['gstin'][-4:]}).")
+                    "The GSTIN printed on the certificate has a character that differs from the registry record for this business, so it may have been altered.")
             else:
                 ok.append("GSTIN on certificate matches registry")
             if record["status"] != "Active":
@@ -158,6 +158,12 @@ def check_applicant(docs: dict[str, Extracted], entered_gstin: str | None = None
                 add("review", "signatory_mismatch", "The name on the signatory ID differs from the proprietor on the GST record.")
             else:
                 ok.append("Signatory matches proprietor")
+        contact = registry.lead_contact(record["gstin"]) if record else None
+        if contact and not prop:
+            if name_score(contact, i.fields.get("name")) < NAME_MIN:
+                add("review", "signatory_vs_lead", "The name on the signatory ID differs from the contact person on this business's application.")
+            else:
+                ok.append("Signatory matches the contact on the application")
     rej = [x for x in issues if x.severity == "reject"]
     if rej:
         return Result("rejected", " ".join(x.message for x in rej), issues, ok, out)

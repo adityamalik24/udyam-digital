@@ -57,7 +57,7 @@ python tests/run_scenarios.py
 ```
 
 ## Out of scope
-WhatsApp, voice, back-office UI, real DigiLocker / e-sign / payment gateway, React frontend, auth beyond a demo user.
+WhatsApp, voice, a full back-office (the read-only Partner queue is in scope), real DigiLocker / e-sign / payment gateway, React frontend, auth beyond a demo user.
 
 ## Working style
 - Read `data/README.md` and the CSV header before writing data code.

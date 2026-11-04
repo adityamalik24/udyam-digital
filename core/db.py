@@ -32,3 +32,9 @@ def conn():
 def save_lead(profile_json: str, reason: str) -> None:
     with conn() as c:
         c.execute("INSERT INTO leads(profile,reason,ts) VALUES(?,?,?)", (profile_json, reason, now()))
+
+
+def list_leads() -> list[dict]:
+    with conn() as c:
+        rows = c.execute("SELECT profile, reason, ts FROM leads ORDER BY id DESC").fetchall()
+    return [{"profile": r[0], "reason": r[1], "ts": r[2]} for r in rows]

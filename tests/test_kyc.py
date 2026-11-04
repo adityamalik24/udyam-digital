@@ -8,7 +8,7 @@ from core.kyc.validators import gstin_problem, gstin_checksum, valid_udyam, mask
 EXPECTED = {"K01": ("rejected", "gst_inactive"), "K02": ("verified", None), "K03": ("verified", None),
             "K04": ("needs_review", "blurry_gst"), "K05": ("needs_review", "missing_udyam"),
             "K06": ("rejected", "gst_number_mismatch"), "K07": ("needs_review", "legal_name_mismatch"),
-            "K08": ("verified", None), "K09": ("verified", None), "K10": ("verified", None),
+            "K08": ("verified", None), "K09": ("verified", None), "K10": ("needs_review", "signatory_vs_lead"),
             "K11": ("needs_review", "bill_stale"), "K12": ("verified", None)}
 
 @pytest.fixture(scope="module")

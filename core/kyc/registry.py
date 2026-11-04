@@ -58,3 +58,15 @@ def all_gstins():
 
 def all_udyam():
     return list(_udyam())
+
+
+@lru_cache(maxsize=1)
+def _lead_contacts() -> dict:
+    import csv
+    with open(DATA / "smb_leads.csv", encoding="utf-8") as f:
+        return {r["gstin"]: r["contact_name"] for r in csv.DictReader(f) if r["gstin"]}
+
+
+def lead_contact(gstin: str) -> str | None:
+    """Person named on the sales lead for this GSTIN. The only name to compare against for companies and LLPs."""
+    return _lead_contacts().get(gstin)

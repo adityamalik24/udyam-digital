@@ -2,6 +2,8 @@
 Every failure returns None so the deterministic advisor carries on."""
 from __future__ import annotations
 import json, os, re
+from dotenv import load_dotenv
+load_dotenv()  # picks up LLM_API_KEY from .env locally; Streamlit Cloud exposes app secrets as env vars
 MODEL = os.getenv("LLM_MODEL", "claude-opus-5-5")
 _client = None
 

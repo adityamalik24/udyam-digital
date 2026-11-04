@@ -136,7 +136,7 @@ card(s, 5.5, 3.45, 3.8, 1.15, "To validate", "Pilot measures real recovery, and 
 # 9 Rollout + metrics
 s = slide("Roll out in three steps, and measure five numbers")
 table(s, .5, .88, 4.2, [["Phase","Scope"],["1. Pilot","Professional offices, Tier 1, Hindi and English"],["2. Extend","Micro digital-only, Tier 2, regional languages"],["3. Assisted","Multi-site and manufacturers via specialists"]], [1,3], 12, .5)
-text(s, .5, 3.05, 4.2, 1.7, ["Field force moves to complex accounts and advisor hand-offs, not small tickets.","Partners keep local credit for leads and handle installs, so digital adds to them."], 13)
+text(s, .5, 3.05, 4.2, 1.7, ["Field force: complex accounts and advisor hand-offs, which arrive with a saved summary. Small tickets go digital.","Partners: keep credit for leads they bring, run installs, and call a score-ranked queue of dropped leads."], 13)
 table(s, 4.95, .88, 4.35, [["Metric","Now","Target"],["Lead to activation","7.4%","11%"],["Days to activate","17.6","10"],["Status chases","3.0","1 or fewer"],["Cost per activation","₹15,053","₹10,000"],["Micro 6-month churn","22.7%","15%"]], [2.3,1,1], 12, .42)
 text(s, 4.95, 3.55, 4.35, .8, "Targets are our proposals, to be reset after the pilot.", 12, MUTE)
 
