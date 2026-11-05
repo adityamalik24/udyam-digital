@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from . import guardrails as G, llm
 from .catalogue import catalogue
 from .kyc import registry
-from .rules import Profile, Recommendation, recommend, reason_text, NEEDS, MICRO
+from .rules import Profile, Recommendation, recommend, reason_text, NEEDS, MICRO, QUESTION_VALUES, question_matters, gstin_product
 
 TIER1 = {"delhi": "दिल्ली", "mumbai": "मुंबई", "bengaluru": "बेंगलुरु", "bangalore": "बैंगलोर", "chennai": "चेन्नई", "kolkata": "कोलकाता", "hyderabad": "हैदराबाद", "pune": "पुणे", "ahmedabad": "अहमदाबाद",
          "gurgaon": "गुड़गांव", "gurugram": "गुरुग्राम", "noida": "नोएडा"}
@@ -87,7 +87,8 @@ Q = {"business_type": {"en": "What kind of business do you run (for example a ki
      "city_tier": {"en": "I don't have that city listed. Is it a metro (Tier 1), a large city (Tier 2), or a smaller town (Tier 3)?", "hi": "यह शहर मेरी सूची में नहीं है। क्या यह मेट्रो (टियर 1), बड़ा शहर (टियर 2) या छोटा शहर (टियर 3) है?", "hinglish": "Yeh city meri list mein nahi hai. Kya yeh metro (Tier 1), bada sheher (Tier 2) ya chhota town (Tier 3) hai?"},
      "has_gstin": {"en": "Does your business have a GSTIN?", "hi": "क्या आपके बिज़नेस का GSTIN है?", "hinglish": "Kya aapke business ka GSTIN hai?"},
      "needs": {"en": "What's the main thing you need right now: reliable internet, UPI or billing, email, CCTV, customer messaging, or something else? If you already have internet, tell me that too.", "hi": "अभी आपको सबसे ज़्यादा क्या चाहिए: भरोसेमंद इंटरनेट, UPI या बिलिंग, ईमेल, सीसीटीवी, ग्राहकों को मैसेज, या कुछ और? अगर इंटरनेट पहले से है तो वह भी बताएँ।", "hinglish": "Abhi sabse zyada kya chahiye: reliable internet, UPI ya billing, email, CCTV, customer messaging, ya kuch aur? Agar internet already hai to woh bhi bataiye."}}
-ORDER = ["business_type", "employees", "locations", "city", "city_tier", "has_gstin", "needs"]
+# What they need comes early: the staff, site and GSTIN questions are only asked when the answer changes that plan.
+ORDER = ["business_type", "needs", "city", "city_tier", "employees", "locations", "has_gstin"]
 TXT = {
  "welcome": {"en": "Hi! I'm your Accel Business advisor. Tell me about your business and I'll suggest the right plan with one clear monthly price. Hindi or English, both are fine.", "hi": "नमस्ते! मैं आपका Accel Business सलाहकार हूँ।", "hinglish": "Namaste! Main aapka Accel Business advisor hoon."},
  "injection": {"en": "I can't share or change how I work, but I'm happy to help you find the right plan.", "hi": "मैं अपने निर्देश साझा या बदल नहीं सकता, पर सही प्लान ढूँढने में ज़रूर मदद करूँगा।", "hinglish": "Main apne instructions share ya change nahi kar sakta, par sahi plan dhoondhne mein zaroor help karunga."},
@@ -118,6 +119,7 @@ TXT = {
  "faq_your_terms": {"en": "For your plan: setup ₹{s:,} once, and a {c}-month minimum contract. I don't have early-exit terms, so please check them with a specialist before you sign.", "hi": "आपके प्लान में: सेटअप ₹{s:,} एक बार, और न्यूनतम {c} महीने का अनुबंध। जल्दी बंद करने की शर्तें विशेषज्ञ से पूछ लें।", "hinglish": "Aapke plan mein: setup ₹{s:,} ek baar, aur minimum {c} months ka contract. Early exit ki terms specialist se confirm kar lijiye."},
  "cheapest": {"en": "Our lowest prices start at ₹{a:,} per month for {an} (mobile only) and ₹{b:,} per month for {bn} (internet at your site). The right one depends on your business.", "hi": "सबसे कम कीमत ₹{a:,} प्रति माह {an} (केवल मोबाइल) और ₹{b:,} प्रति माह {bn} (दुकान पर इंटरनेट) से शुरू है। सही प्लान आपके बिज़नेस पर निर्भर है।", "hinglish": "Sabse kam price ₹{a:,} per month {an} (sirf mobile) aur ₹{b:,} per month {bn} (site par internet) se shuru hai. Sahi plan aapke business par depend karta hai."},
  "hint": {"en": "No problem, a rough answer is fine.", "hi": "कोई बात नहीं, अंदाज़ा भी चलेगा।", "hinglish": "Koi baat nahi, andaaza bhi chalega."},
+ "gst_why": {"en": "I'm asking because {name} can't be sold without one.", "hi": "मैं इसलिए पूछ रहा हूँ क्योंकि {name} इसके बिना नहीं दिया जा सकता।", "hinglish": "Main isliye pooch raha hoon kyunki {name} iske bina nahi di ja sakti."},
  "hint_gst": {"en": "A GSTIN is the 15-character number on a GST certificate. If you don't have one, just say no.", "hi": "GSTIN आपके GST प्रमाणपत्र पर लिखा 15 अंकों का नंबर है। अगर नहीं है तो \"नहीं\" लिख दें।", "hinglish": "GSTIN aapke GST certificate par likha 15-character number hai. Agar nahi hai to \"nahi\" likh dijiye."},
  "suggest": {"en": "No problem. Most businesses like yours start with reliable internet. Shall I go with that? Reply yes, or tell me what else you need.", "hi": "कोई बात नहीं। आपके जैसे ज़्यादातर बिज़नेस भरोसेमंद इंटरनेट से शुरू करते हैं। क्या वही लें? \"हाँ\" लिखें, या बताएँ कि और क्या चाहिए।", "hinglish": "Koi baat nahi. Aapke jaise zyadatar business reliable internet se shuru karte hain. Wahi le lein? \"Haan\" boliye, ya bataiye aur kya chahiye."},
  "gst_bad": {"en": "That GSTIN doesn't show as active in the registry, so I can only include products that don't need one.", "hi": "यह GSTIN रजिस्ट्री में सक्रिय नहीं दिख रहा, इसलिए मैं केवल वही प्रोडक्ट जोड़ सकता हूँ जिनमें इसकी ज़रूरत नहीं।", "hinglish": "Yeh GSTIN registry mein active nahi dikh raha, isliye main sirf wahi products add kar sakta hoon jinmein iski zaroorat nahi."},
@@ -330,8 +332,17 @@ def next_question(s: State) -> str | None:
         if f == "city_tier" and p.city is None: continue
         if f == "needs":
             if not val: return f
+        elif f in QUESTION_VALUES:
+            if val is None and question_matters(f, p): return f
         elif val is None: return f
     return None
+
+
+def _question(s: State, f: str, lang: str) -> str:
+    q = Q[f][lang]
+    if f == "has_gstin" and (name := gstin_product(s.profile)):
+        q = _join(q, _lang_text("gst_why", lang, name=name))
+    return q
 
 
 def _lang_text(key, lang, **k): return TXT[key].get(lang, TXT[key]["en"]).format(**k)
@@ -389,7 +400,7 @@ def _steer(s: State) -> str:
     f = next_question(s)
     if f:
         s.awaiting = f
-        return Q[f][s.profile.language]
+        return _question(s, f, s.profile.language)
     return ""
 
 
@@ -528,14 +539,14 @@ def _route(s, text, found, lang, llm_client):
             if f == "needs":
                 s.awaiting = "needs_confirm"
                 return _lang_text("suggest", lang)
-            return _join(_lang_text("hint_gst" if f == "has_gstin" else "hint", lang), Q[f][lang])
+            return _join(_lang_text("hint_gst" if f == "has_gstin" else "hint", lang), _question(s, f, lang))
         s.stuck = 0
         s.awaiting = f; s.rec = None
-        if f == "city_tier" and s.profile.has_gstin is None:  # one turn for both, so an unlisted city stays within six questions
+        if f == "city_tier" and s.profile.has_gstin is None and question_matters("has_gstin", s.profile):  # one turn for both, so an unlisted city stays within six questions
             s.asked.append("city_tier+has_gstin")
-            return _join(Q[f][lang], Q["has_gstin"][lang])
+            return _join(Q[f][lang], _question(s, "has_gstin", lang))
         if f not in s.asked and not (f == "has_gstin" and "city_tier+has_gstin" in s.asked): s.asked.append(f)
-        return Q[f][lang]
+        return _question(s, f, lang)
     s.awaiting = None; s.stuck = 0
     s.rec = recommend(s.profile)
     if s.rec.handoff: _do_handoff(s, s.rec.handoff)

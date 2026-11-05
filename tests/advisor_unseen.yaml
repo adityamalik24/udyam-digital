@@ -27,5 +27,5 @@
 - {id: u26, name: "Static IP needs fibre", turns: ["Salon in Pune, 3 staff, one location, GST yes, need static IP"], has: [P11], lacks: [P04]}
 - {id: u27, name: "POS hinglish", turns: ["restaurant hai mera Nagpur mein, 7 log, ek outlet, gst hai, billing software aur wifi chahiye"], has: [P19, P22]}
 - {id: u28, name: "Just thanks cold", turns: ["ok thanks"], no_rec: true}
-- {id: u29, name: "Numeric only answers", turns: ["clinic", "7", "2", "Mumbai", "yes", "email"], has: [P16], handoff: true}
+- {id: u29, name: "Numeric only answers", turns: ["clinic", "email", "Mumbai", "7", "2"], has: [P16], handoff: true}
 - {id: u30, name: "Two people worded", turns: ["Two of us run a salon in Delhi, one location, no GST, need internet"], profile: {employees: 2}}

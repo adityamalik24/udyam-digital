@@ -15,16 +15,23 @@ lang = "hi" if st.session_state.ui_lang == "hi" else "en"
 ADDONS = ["P09", "P22", "P23", "P20", "P16", "P17", "P15", "P14", "P19", "P18", "P07", "P11"]
 selected = set(st.session_state.get("addons", set()))
 new_sel = set()
+prof = s.profile
+hi = st.session_state.ui_lang == "hi"
 with st.expander(t["addons"], expanded=False):
+    # The chat only asks what its plan depends on, so an add-on can need an answer it never asked for.
+    if prof.has_gstin is None and st.checkbox("मेरे बिज़नेस का GSTIN है" if hi else "My business has a GSTIN", key="quote_gstin"):
+        prof = prof.model_copy(update={"has_gstin": True})
     for pid in [a for a in ADDONS if a not in base]:
-        ok, reason = eligible(pid, s.profile)
+        ok, reason = eligible(pid, prof)
         label = f"{cat[pid].name} · ₹{cat[pid].monthly:,}/{cat[pid].unit.replace('per ', '')}"
         if ok:
             if st.checkbox(label, value=pid in selected, key=f"addon_{pid}"): new_sel.add(pid)
         else:
             st.checkbox(f"{label} ({reason_text(reason, lang)})", value=False, disabled=True, key=f"addon_{pid}")
+    if prof.employees is None and new_sel & {"P16", "P20"}:  # priced per person
+        prof = prof.model_copy(update={"employees": int(st.number_input("कितने लोगों के लिए?" if hi else "How many people will use this?", 1, 999, 1, key="quote_staff"))})
 st.session_state.addons = new_sel
-res = apply_addons(s.profile, base, new_sel)
+res = apply_addons(prof, base, new_sel)
 q = price(res["items"])  # always recomputed on the server from product ids, never read from UI state
 st.markdown(f'<div class="big-price">₹{q.monthly:,}</div>{t["per_month"]}', unsafe_allow_html=True)
 for a, b in res["added"].items():

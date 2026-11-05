@@ -1,6 +1,7 @@
 """Eligibility, dependencies and recommendation. Decides every product; the LLM never does."""
 from __future__ import annotations
 from dataclasses import dataclass, field
+from itertools import product
 from pydantic import BaseModel, Field
 from .catalogue import catalogue, Product
 from .pricing import price, Quote
@@ -42,7 +43,7 @@ def _reason(p: Product, prof: Profile) -> tuple[str, dict] | None:
         return ("tier", {"tier": prof.city_tier, "tiers": p.tiers})
     if p.requires_gstin and prof.has_gstin is not True:
         return ("gstin", {})
-    if (prof.employees or 0) < p.min_employees:
+    if (prof.employees or 1) < p.min_employees:
         return ("employees", {"min": p.min_employees})
     if (prof.locations or 1) < p.min_sites:
         return ("sites", {"min": p.min_sites})
@@ -161,6 +162,31 @@ def recommend(prof: Profile) -> Recommendation:
     if "dedicated_bandwidth" in needs and not ({"P05", "P06"} & set(rec.items)):
         rec.handoff = rec.handoff or "manufacturer_custom"
     return rec
+
+
+QUESTION_VALUES = {"employees": [1, 3, 5, 10, 25], "locations": [1, 2, 3], "has_gstin": [True, False]}
+
+
+def _outcome(prof: Profile) -> tuple:
+    r = recommend(prof)
+    return tuple(sorted(r.items.items())), frozenset(e[0] for e in r.excluded)
+
+
+def question_matters(field_name: str, prof: Profile) -> bool:
+    """A question is only worth asking if some answer to it changes the bundle, for any value of what's still unknown."""
+    others = [f for f in QUESTION_VALUES if f != field_name and getattr(prof, f) is None]
+    for combo in product(*(QUESTION_VALUES[f] for f in others)):
+        base = dict(zip(others, combo))
+        if len({_outcome(prof.model_copy(update={**base, field_name: v})) for v in QUESTION_VALUES[field_name]}) > 1:
+            return True
+    return False
+
+
+def gstin_product(prof: Profile) -> str | None:
+    """Name of a product in this request that depends on a GSTIN, to explain why we ask."""
+    yes = recommend(prof.model_copy(update={"has_gstin": True})).items
+    no = recommend(prof.model_copy(update={"has_gstin": False})).items
+    return next((catalogue()[p].name for p in yes if p not in no), None)
 
 
 def enforce_dependencies(items: dict[str, int], prof: Profile) -> tuple[dict[str, int], dict[str, str]]:

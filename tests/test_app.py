@@ -92,3 +92,19 @@ def test_new_chat_button_resets_the_chat_and_keeps_the_language():
     at.button[0].click().run(); assert not at.exception
     assert at.session_state["ui_lang"] == "hi" and at.session_state["advisor"].profile.language == "hi"
     assert "नमस्ते" in at.session_state["chat"][0][1]
+
+
+def test_quote_addon_can_answer_a_question_the_chat_skipped():
+    s = State()
+    for m in ("clinic", "internet", "Delhi", "6", "1"): turn(s, m)
+    assert s.rec.quote and s.profile.has_gstin is None
+    q = AppTest.from_file(str(ROOT / "app/pages/2_Quote.py"), default_timeout=30)
+    q.session_state["advisor"] = s
+    q.run(); assert not q.exception
+    whatsapp = next(c for c in q.checkbox if c.key == "addon_P15")
+    assert whatsapp.disabled and "GSTIN" in whatsapp.label
+    next(c for c in q.checkbox if c.key == "quote_gstin").check().run()
+    whatsapp = next(c for c in q.checkbox if c.key == "addon_P15")
+    assert not whatsapp.disabled
+    whatsapp.check().run(); assert not q.exception
+    assert any("1,249" in m.value or "2,348" in m.value for m in q.markdown)

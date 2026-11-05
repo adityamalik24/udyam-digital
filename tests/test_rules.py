@@ -123,3 +123,22 @@ def test_every_business_type_in_the_data_is_recognised():
         got = extract_profile(f"I run a {bt}", Profile()).get("business_type")
         assert got, bt
         assert (got == "manufacturer") == (seg == "Small manufacturers"), (bt, got)
+
+
+def test_skipped_questions_really_do_not_change_the_plan():
+    from core.rules import question_matters, QUESTION_VALUES
+    for need in NEEDS:
+        base = Profile(business_type="clinic", city="X", city_tier=1, needs=[need])
+        for f in QUESTION_VALUES:
+            if not question_matters(f, base):
+                others = {g: None for g in QUESTION_VALUES if g != f}
+                got = {tuple(sorted(recommend(base.model_copy(update={**others, f: v})).items.items())) for v in QUESTION_VALUES[f]}
+                assert len(got) == 1, (need, f, got)
+
+
+def test_questions_asked_for_the_right_needs():
+    from core.rules import question_matters as m
+    p = lambda *n: Profile(business_type="clinic", city="X", city_tier=1, needs=list(n))
+    assert not m("has_gstin", p("internet")) and m("has_gstin", p("customer_messaging"))
+    assert not m("employees", p("website")) and not m("locations", p("website"))
+    assert m("employees", p("cloud_email")) and m("locations", p("internet"))

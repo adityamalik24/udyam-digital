@@ -33,6 +33,7 @@ Stretch goal: `Partner queue` lists advisor hand-offs and ranks leads lost to ou
 | "Clinic wants email" adds a link and Endpoint Security | Our scenario 2. Goes beyond rule 4 (stated needs only): all 138 professional-office customers with email also bought a link, 67 bought security. Saying "we already have internet" removes the link |
 | CCTV and similar still add a link when the owner has one | The catalogue requires a listed product in the same bundle, and we can't confirm a link from another provider |
 | A typed GSTIN is looked up, then discarded | Only an active registry record counts as having a GSTIN; the number is never stored or repeated |
+| Staff, sites and GSTIN are asked only when they change the plan | `question_matters` tries the possible answers against the rules, so a website-only request skips them. The Quote page asks if an add-on needs them |
 | Tiers for cities outside the data | The leads cover 22 cities. Other tier 2 and 3 lists are our assumption; unlisted cities are asked, not guessed |
 
 ## KYC results (our manual review, not the judges' key)

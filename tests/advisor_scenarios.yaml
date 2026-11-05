@@ -29,9 +29,9 @@
 - {id: 23, name: "SD-WAN too small", turns: ["Retail chain 2 shops in Pune, 12 staff, have GST, need SD-WAN"], lacks: [P10], reply_has: "at least 3 locations"}
 - {id: 24, name: "GSTIN pasted is not stored", turns: ["my gstin is 27XUIXG0767D1ZP, I run a factory in Nagpur"], reply_lacks: "27XUIXG", history_lacks: "27XUIXG"}
 - {id: 25, name: "Skip answered", turns: ["CA firm in Chennai, 8 staff, one office, have GSTIN, need cloud storage"], items: [P01, P17], max_asked: 0}
-- {id: 26, name: "Hindi bare no to GSTIN", turns: ["मेरी दुकान है", "3", "1", "पटना", "नहीं", "यूपीआई के लिए इंटरनेट"], items: [P04], lang: hi}
+- {id: 26, name: "Hindi bare answers in the new order", turns: ["मेरी दुकान है", "यूपीआई के लिए इंटरनेट", "पटना", "3", "1"], items: [P04], lang: hi}
 - {id: 27, name: "Remove an add-on", turns: ["Pharmacy in Jaipur, 4 staff, 1 shop, have GST, need internet and CCTV", "remove cctv"], lacks: [P23], has: [P04]}
-- {id: 28, name: "Unlisted city kept, then tier asked", turns: ["coaching centre in Bareli"], reply_has: "Which|How many"}
+- {id: 28, name: "Unlisted city kept, then tier asked", turns: ["coaching centre in Bareli", "internet"], reply_has: "don.t have that city"}
 - {id: 29, name: "City named once is not re-asked", turns: ["coaching centre in Kanpur, 15 staff, one centre, no gst, need internet"], has: [P02], max_asked: 0}
 - {id: 30, name: "Price haggle by amount", turns: ["Can I get Fibre at ₹500?"], reply_has: "can't offer discounts"}
 - {id: 31, name: "Phone not retained", turns: ["my number is 9876543210, I run a salon"], history_lacks: "9876543210"}
@@ -41,7 +41,7 @@
 - {id: a1, name: "ho gaya is not the city Gaya", turns: ["mera kirana hai, internet band ho gaya hai"], no_rec: true, reply_lacks: "Tier 1 aur Tier 2", profile: {city: null}}
 - {id: a2, name: "गया is not the city Gaya", turns: ["मेरा क्लिनिक है, इंटरनेट बंद हो गया है"], no_rec: true, reply_lacks: "टियर 1", profile: {city: null}}
 - {id: a3, name: "Gaya stated as a place is still Tier 3", turns: ["kirana in Gaya, need internet"], no_rec: true, handoff: true, profile: {city_tier: 3}}
-- {id: a4, name: "Business named Sagar is not a city", turns: ["Sagar Medical Store here, need internet"], reply_has: "How many people", profile: {city: null}}
+- {id: a4, name: "Business named Sagar is not a city", turns: ["Sagar Medical Store here, need internet"], reply_has: "Which city", profile: {city: null}}
 - {id: a5, name: "City after in beats a city in the name", turns: ["Delhi Sweets in Pune, need internet"], profile: {city: Pune}}
 - {id: a6, name: "at night is not a city", turns: ["clinic in Delhi 5 staff one location GST yes need internet", "internet drops at night"], has: [P01, P09], profile: {city: Delhi}}
 - {id: a7, name: "from home is not a city", turns: ["I run a CA firm from home, need internet"], profile: {city: null}}
@@ -52,7 +52,7 @@
 - {id: a12, name: "No internet today is a need, not a refusal", turns: ["salon in Pune, 3 people, one shop, no GST, we have no internet, need internet"], has: [P04]}
 - {id: a13, name: "Cancelled GST does not count", turns: ["clinic in Pune, 6 people, one location, my GST got cancelled, need internet and WhatsApp"], lacks: [P15], reply_has: "needs a GSTIN", profile: {has_gstin: false}}
 - {id: a14, name: "GST applied for does not count", turns: ["clinic in Pune, 6 people, one location, GST applied but not received yet, need internet and WhatsApp"], lacks: [P15], profile: {has_gstin: false}}
-- {id: a15, name: "Unsure about GST is asked", turns: ["clinic in Pune, 6 people, one location, don't know if I have GST, need internet"], no_rec: true, reply_has: "GSTIN"}
+- {id: a15, name: "Unsure about GST is asked when it matters", turns: ["clinic in Pune, 6 people, one location, don't know if I have GST, need WhatsApp"], no_rec: true, reply_has: "GSTIN"}
 - {id: a16, name: "Question about GST on the bill", turns: ["do you charge GST on top?"], reply_has: "tax breakdown", profile: {has_gstin: null}}
 - {id: a17, name: "Typed cancelled GSTIN checked against registry", turns: ["clinic pune 6 people one location need internet and WhatsApp", "my gstin is 37IHKXV5167L1ZS"], lacks: [P15], reply_has: "active", reply_lacks: "37IHKXV", history_lacks: "37IHKXV", profile: {has_gstin: false}}
 - {id: a18, name: "Typed active GSTIN accepted", turns: ["clinic pune 6 people one location need internet and WhatsApp", "my gstin is 37NBLXS1145E1ZU"], has: [P15], reply_lacks: "37NBLXS", profile: {has_gstin: true}}
@@ -63,12 +63,12 @@
 - {id: a23, name: "Already have internet, only email", turns: ["CA firm Pune 5 people one office GST yes. We already have internet, need only email"], lacks: [P01, P02, P04], has: [P16]}
 - {id: a24, name: "Already have fibre, CCTV still needs a catalogue link", turns: ["clinic in Pune, 6 people, one location, GST yes. already have fibre internet, just want CCTV"], has: [P23, P01], reply_has: "needs an internet connection"}
 - {id: a25, name: "Stuck on a question ends in hand-off, no loop", turns: ["need something for my shop", "not sure", "pata nahi", "kuch bhi"], handoff: true, reply_has: "specialist"}
-- {id: a26, name: "Vague need gets a suggestion, yes accepts it", turns: ["kirana in Pune", "3 log", "ek", "haan GST hai", "jo best ho", "haan"], has: [P04]}
-- {id: a27, name: "Unlisted city stays within six questions", turns: ["hello", "clinic", "6", "1", "Kota", "tier 2, yes", "internet"], has: [P01], reply_has: "per month"}
-- {id: a28, name: "Unlisted city, tier only, GSTIN re-ask is not counted", turns: ["hello", "clinic", "6", "1", "Kota", "2", "yes", "internet"], has: [P01]}
+- {id: a26, name: "Vague need gets a suggestion, yes accepts it", turns: ["kirana in Pune", "jo best ho", "haan", "3 log", "ek"], has: [P04]}
+- {id: a27, name: "Unlisted city asks tier and GSTIN together when both matter", turns: ["hello", "clinic", "whatsapp", "Kota", "tier 2, yes"], items: [P15], reply_has: "per month"}
+- {id: a28, name: "Tier only, GSTIN re-ask is not counted", turns: ["hello", "clinic", "whatsapp", "Kota", "2", "yes"], items: [P15]}
 - {id: a29, name: "Furniture showroom is retail, not a factory", turns: ["I have a furniture showroom in Jaipur"], profile: {business_type: retailer}}
 - {id: a30, name: "Absurd size goes to a person", turns: ["clinic in Pune 100000 people 1 location gst yes internet"], handoff: true}
-- {id: a31, name: "Negative staff count is ignored", turns: ["clinic in Pune, -5 people"], reply_has: "How many people", profile: {employees: null}}
+- {id: a31, name: "Negative staff count is ignored", turns: ["clinic in Pune, -5 people, need internet"], reply_has: "How many people", profile: {employees: null}}
 - {id: a32, name: "Reply says why", turns: ["Clinic in Delhi, 6 staff, one location, have GSTIN, want email"], reply_has: "business email and documents", reply_has2: "viruses"}
 - {id: a33, name: "Hindi reply says why", turns: ["मेरा क्लिनिक है, दिल्ली में, 6 लोग, एक ही, GSTIN है, ईमेल चाहिए"], reply_has: "ईमेल और दस्तावेज़", lang: hi}
 - {id: a34, name: "Backup internet is failover, not cloud backup", turns: ["pharmacy in Pune 3 staff one shop no GST need backup internet"], has: [P09, P01], lacks: [P17]}
@@ -89,7 +89,15 @@
 - {id: r5, name: "Hinglish restart", turns: ["mera kirana hai", "phir se shuru karo"], reply_has: "shuru karte", profile: {business_type: null}}
 - {id: r6, name: "Restarting a router is not restarting the chat", turns: ["clinic in Delhi", "my router needs a restart every day"], reply_lacks: "cleared", profile: {business_type: clinic}}
 - {id: r7, name: "Restart clears an earlier hand-off", turns: ["this is useless", "start over"], reply_has: "cleared"}
-- {id: r8, name: "Why are you asking gets an answer", turns: ["clinic in Delhi", "why do you need this?"], reply_has: "minimum team size", reply_has2: "How many people"}
-- {id: r9, name: "Why does not count as being stuck", turns: ["clinic in Delhi", "why do you need this?", "why this question?", "why do you need this?"], reply_has: "minimum team size"}
+- {id: r8, name: "Why are you asking gets an answer", turns: ["clinic in Delhi, need internet", "why do you need this?"], reply_has: "minimum team size", reply_has2: "How many people"}
+- {id: r9, name: "Why does not count as being stuck", turns: ["clinic in Delhi, need internet", "why do you need this?", "why this question?", "why do you need this?"], reply_has: "minimum team size"}
 - {id: r10, name: "Too many questions stops the questions", turns: ["clinic in Delhi", "too many questions"], reply_has: "stop asking", reply_lacks: "How many"}
-- {id: r11, name: "Can continue after pausing", turns: ["clinic in Delhi", "stop", "6 people"], reply_has: "How many locations", profile: {employees: 6}}
+- {id: r11, name: "Can continue after pausing", turns: ["clinic in Delhi, need internet", "stop", "6 people"], reply_has: "How many locations", profile: {employees: 6}}
+- {id: g1, name: "Plain internet never asks about GSTIN", turns: ["clinic", "internet", "Delhi", "6", "1"], items: [P01], reply_has: "per month", reply_lacks: "GSTIN", profile: {has_gstin: null}}
+- {id: g2, name: "WhatsApp asks about GSTIN and says why", turns: ["salon", "whatsapp", "Pune"], reply_has: "GSTIN", reply_has2: "WhatsApp Business API Starter can.t be sold"}
+- {id: g3, name: "Answer no to GSTIN excludes with a reason", turns: ["salon", "whatsapp", "Pune", "no"], lacks: [P15], handoff: true, reply_has: "needs a GSTIN"}
+- {id: g4, name: "Website only skips staff, sites and GSTIN", turns: ["boutique", "I want a website", "Jaipur"], items: [P18], max_asked: 2, reply_has: "per month"}
+- {id: g5, name: "Email asks staff because it is per person", turns: ["CA firm", "email", "Pune"], reply_has: "How many people", no_rec: true}
+- {id: g6, name: "SD-WAN still asks every size question it needs", turns: ["retail chain", "sd-wan", "Delhi", "15", "3", "yes"], has: [P10], qty: {P10: 3}}
+- {id: g7, name: "Leased line asks GSTIN and staff", turns: ["factory", "leased line", "Surat", "40", "1", "yes"], has: [P05]}
+- {id: g8, name: "Hindi question gives the reason", turns: ["मेरी दुकान है", "व्हाट्सएप चाहिए", "पुणे"], reply_has: "GSTIN", reply_has2: "इसके बिना नहीं", lang: hi}
