@@ -16,7 +16,11 @@ if prompt := st.chat_input("Type here / यहाँ लिखें"):
     with st.spinner("..."):
         reply = turn(s, prompt)
     # Only the redacted form of what the user typed is kept, so identifiers vanish from the transcript too.
-    st.session_state.chat += [("user", s.history[-2][1]), ("assistant", reply)]
+    if s.restarted:
+        st.session_state.chat = [("assistant", reply)]
+        st.session_state.pop("addons", None)
+    else:
+        st.session_state.chat += [("user", s.history[-2][1]), ("assistant", reply)]
     st.rerun()
 from core import llm
 if llm.last_error: st.caption("AI wording is unavailable right now, so replies use standard text. Plans and prices are unaffected.")

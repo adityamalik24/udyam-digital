@@ -122,9 +122,20 @@ TXT = {
  "suggest": {"en": "No problem. Most businesses like yours start with reliable internet. Shall I go with that? Reply yes, or tell me what else you need.", "hi": "कोई बात नहीं। आपके जैसे ज़्यादातर बिज़नेस भरोसेमंद इंटरनेट से शुरू करते हैं। क्या वही लें? \"हाँ\" लिखें, या बताएँ कि और क्या चाहिए।", "hinglish": "Koi baat nahi. Aapke jaise zyadatar business reliable internet se shuru karte hain. Wahi le lein? \"Haan\" boliye, ya bataiye aur kya chahiye."},
  "gst_bad": {"en": "That GSTIN doesn't show as active in the registry, so I can only include products that don't need one.", "hi": "यह GSTIN रजिस्ट्री में सक्रिय नहीं दिख रहा, इसलिए मैं केवल वही प्रोडक्ट जोड़ सकता हूँ जिनमें इसकी ज़रूरत नहीं।", "hinglish": "Yeh GSTIN registry mein active nahi dikh raha, isliye main sirf wahi products add kar sakta hoon jinmein iski zaroorat nahi."},
  "faq_tax": {"en": "The prices I quote are the catalogue monthly prices. I don't have the tax breakdown, so please confirm with a specialist whether GST is added on the bill.", "hi": "मैं कैटलॉग की मासिक कीमत बताता हूँ। टैक्स का ब्योरा मेरे पास नहीं है, इसलिए बिल पर GST के बारे में विशेषज्ञ से पूछ लें।", "hinglish": "Main catalogue ka monthly price batata hoon. Tax ka breakup mere paas nahi hai, isliye bill par GST ke baare mein specialist se confirm kar lijiye."},
+ "restart": {"en": "Sure, let's start over. I've cleared your earlier answers.", "hi": "ठीक है, फिर से शुरू करते हैं। मैंने आपके पिछले जवाब हटा दिए हैं।", "hinglish": "Theek hai, phir se shuru karte hain. Maine aapke pichhle answers hata diye hain."},
+ "pause": {"en": "Okay, I'll stop asking for now. Message me whenever you're ready, or say \"start over\" for a fresh chat.", "hi": "ठीक है, अभी और नहीं पूछूँगा। जब चाहें मैसेज करें, या नई शुरुआत के लिए \"शुरू से\" लिखें।", "hinglish": "Theek hai, abhi aur nahi poochunga. Jab chahein message kijiye, ya fresh start ke liye \"shuru se\" likhiye."},
  "more_help": {"en": "Could you tell me what you need it to do? For example, internet, email, CCTV or a mobile line.", "hi": "क्या बता सकते हैं कि आपको क्या चाहिए? जैसे इंटरनेट, ईमेल, सीसीटीवी या मोबाइल लाइन।", "hinglish": "Kya bata sakte hain ki aapko kya chahiye? Jaise internet, email, CCTV ya mobile line."},
 }
 NEEDS_CANON = {"toll.free": "toll_free"}
+WHY_FIELD = {
+ "business_type": ("It helps me suggest what businesses like yours actually use.", "इससे मैं आपके जैसे बिज़नेस के काम की चीज़ें सुझा पाता हूँ।", "Isse main aapke jaise business ke kaam ki cheezein suggest kar pata hoon."),
+ "employees": ("Some products have a minimum team size, and email and security are priced per person.", "कुछ प्रोडक्ट के लिए न्यूनतम स्टाफ़ चाहिए, और ईमेल व सिक्योरिटी की कीमत प्रति व्यक्ति होती है।", "Kuch products ke liye minimum staff chahiye, aur email aur security ka price per person hota hai."),
+ "locations": ("Connections are priced per site, and some products need several sites.", "कनेक्शन की कीमत प्रति साइट होती है, और कुछ प्रोडक्ट के लिए कई साइट चाहिए।", "Connection ka price per site hota hai, aur kuch products ke liye kai sites chahiye."),
+ "city": ("What we can sell depends on your city.", "हम क्या दे सकते हैं, यह आपके शहर पर निर्भर है।", "Hum kya de sakte hain, yeh aapki city par depend karta hai."),
+ "city_tier": ("What we can sell depends on your city's tier.", "हम क्या दे सकते हैं, यह आपके शहर के टियर पर निर्भर है।", "Hum kya de sakte hain, yeh aapki city ke tier par depend karta hai."),
+ "has_gstin": ("Some products can't be sold without an active GSTIN.", "कुछ प्रोडक्ट सक्रिय GSTIN के बिना नहीं दिए जा सकते।", "Kuch products active GSTIN ke bina nahi diye ja sakte."),
+ "needs": ("So I only suggest what you need, and nothing extra.", "ताकि मैं केवल वही सुझाऊँ जो आपको चाहिए, उससे ज़्यादा कुछ नहीं।", "Taaki main sirf wahi suggest karun jo aapko chahiye, usse zyada kuch nahi."),
+}
 # Plain-language reason for each product, keyed by the stated need that pulled it in.
 WHY = {
  "internet": ("your main internet connection", "आपका मुख्य इंटरनेट कनेक्शन", "aapka main internet connection"),
@@ -165,6 +176,7 @@ class State:
     history: list[tuple[str, str]] = field(default_factory=list)
     declined: list[str] = field(default_factory=list)
     stuck: int = 0
+    restarted: bool = False  # tells the page to clear the visible chat
 
 
 def detect_language(text: str, current: str) -> str:
@@ -398,12 +410,24 @@ def turn(s: State, raw: str, llm_client=None) -> str:
     bad_gstin = bool(typed) and (rec is None or rec["status"] != "Active")
     text, found = G.redact(raw)
     if bad_gstin: text = text.replace("[GSTIN removed]", "[inactive GSTIN removed]")
+    s.restarted = False
+    if not found and G.RESTART.search(text) and not G.NOT_RESTART.search(text) and len(text.split()) <= 8:
+        return _restart(s, text)
     s.profile.language = detect_language(text, s.profile.language)
     lang = s.profile.language
     reply = _route(s, text, found, lang, llm_client)
     if bad_gstin: reply = _join(_lang_text("gst_bad", lang), reply)
     s.history += [("user", text), ("assistant", reply)]
     return reply
+
+
+def _restart(s: State, text: str) -> str:
+    """Forget every answer. The language stays, and an accepted order is unaffected."""
+    lang = detect_language(text, s.profile.language)
+    s.profile, s.asked, s.awaiting, s.rec = Profile(language=lang), ["business_type"], "business_type", None
+    s.confusion, s.handoff, s.declined, s.stuck, s.history = 0, None, [], 0, []
+    s.restarted = True
+    return _join(_lang_text("restart", lang), Q["business_type"][lang])
 
 
 def _faq(s, text, lang) -> str | None:
@@ -442,6 +466,12 @@ def _route(s, text, found, lang, llm_client):
         return _join(_lang_text("discount", lang), _steer(s))
     if G.OFF_TOPIC.search(text):
         return _join(_lang_text("off_topic", lang), _steer(s))
+    if G.PAUSE.search(text):
+        s.awaiting, s.stuck = None, 0
+        return _lang_text("pause", lang)
+    field_asked = "needs" if s.awaiting == "needs_confirm" else s.awaiting
+    if field_asked and G.WHY_ASK.search(text):
+        return _join(WHY_FIELD[field_asked][{"en": 0, "hi": 1, "hinglish": 2}.get(lang, 0)], Q[field_asked][lang])
     miss = G.out_of_catalogue(text)
     u = extract_profile(text, s.profile, s.awaiting)
     if G.CONFUSED.search(text):

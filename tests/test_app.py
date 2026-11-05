@@ -58,3 +58,12 @@ def test_hindi_chat_switches_quote_page_to_hindi():
     q.session_state["advisor"] = s
     q.run(); assert not q.exception and q.session_state["ui_lang"] == "hi"
     assert any("प्रति माह" in m.value for m in q.markdown)
+
+
+def test_start_over_clears_the_visible_chat():
+    at = AppTest.from_file(str(ROOT / "app/pages/1_Advisor.py"), default_timeout=30).run()
+    at.chat_input[0].set_value("clinic in Delhi").run()
+    at.chat_input[0].set_value("start over").run()
+    assert not at.exception
+    assert len(at.session_state["chat"]) == 1 and "start over" in at.session_state["chat"][0][1]
+    assert at.session_state["advisor"].profile.business_type is None

@@ -51,6 +51,10 @@ FAQ_CONTRACT = re.compile(r"\bcontract\b|lock.?in|अनुबंध|कॉन�
 FAQ_SETUP = re.compile(r"setup|set up (fee|cost|charge)|install\w* (fee|charge|cost)|one.?time|sign.?up fee|lagwane ka|सेटअप|इंस्टॉलेशन", re.I)
 CHEAPEST = re.compile(r"cheapest|lowest (price|plan)|sabse sasta|सबसे सस्ता|(what|which) plans|plans? (do you|kya)|kya plans?|price of|how much (is|does|for)|kitne ka|kitna (price|paisa)|कितने का|क्या प्लान", re.I)
 GSTIN_ASK = re.compile(r"(what|kya|क्या).{0,15}(gst|जीएसटी)|(gst|जीएसटी).{0,15}(kya|क्या|meaning|mean\b)", re.I)
+RESTART = re.compile(r"start (?:\w+ )?(?:over|again|afresh)|restart|begin again|reset|new chat|from the (?:beginning|start)|from scratch|shuru se|phir se shuru|dobara shuru|fir se shuru|naye sire|शुरू से|फिर से शुरू|दोबारा शुरू", re.I)
+NOT_RESTART = re.compile(r"router|modem|device|machine|internet|wi-?fi|connection|business|shop|dukaan|राउटर|मशीन|इंटरनेट", re.I)
+WHY_ASK = re.compile(r"why (do|are|is|should|does)\b.{0,30}(ask|need|want|know|matter|question|this|that)|why (this|that)\b|kyun (pooch|chahiye|jaanna)|kyu (pooch|chahiye)|क्यों (पूछ|चाहिए)", re.I)
+PAUSE = re.compile(r"^\W*(stop|not now|later|bye|goodbye|leave it|rehne do|baad mein|बाद में|रहने दो)\W*$|stop asking|too many questions|enough questions|(sawal|question)\w* (mat|band|bahut)|सवाल (मत|बंद|बहुत)", re.I)
 REGIONAL = re.compile(r"[\u0980-\u09FF\u0A00-\u0A7F\u0A80-\u0AFF\u0B80-\u0BFF\u0C00-\u0C7F\u0C80-\u0CFF\u0D00-\u0D7F]")
 NOT_IN_CATALOGUE = [
     (re.compile(r"satellite|starlink|vsat|सैटेलाइट", re.I), "satellite internet", "P04"),
