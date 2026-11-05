@@ -31,6 +31,26 @@ class Quote:
     install_days: int
 
 
+def first_payment(q: Quote) -> int:
+    """First month plus one-time setup."""
+    return q.monthly + q.setup
+
+
+def contract_total(q: Quote) -> int:
+    """Everything paid over the minimum contract, if the bundle stays as it is."""
+    return q.monthly * q.contract + q.setup
+
+
+def summary_text(q: Quote, descriptions: dict[str, str]) -> str:
+    """Plain summary the owner can keep or share. Plain names and no product codes."""
+    out = ["Accel Business quote", "", f"Rs {q.monthly:,} per month", f"One-time setup: Rs {q.setup:,}", f"Minimum contract: {q.contract} months",
+           f"First payment (first month + setup): Rs {first_payment(q):,}", f"Total over {q.contract} months: Rs {contract_total(q):,}",
+           f"Quote valid until: {q.valid_until:%d %b %Y}", f"Usual time to install: about {q.install_days} days (estimate; the real date appears in your tracker)", "", "What's included:"]
+    for l in q.lines:
+        out.append(f"- {l.name}" + (f" x {l.qty}" if l.qty > 1 else "") + f": Rs {l.monthly:,} per month. {descriptions.get(l.product_id, '')}")
+    return "\n".join(out + ["", "Demo quote. All data is synthetic and Accel Telecom is fictional."]) + "\n"
+
+
 def price(items: dict[str, int], today: date = TODAY) -> Quote:
     """items: product_id -> quantity. Unknown ids and non-positive quantities raise."""
     cat, lines = catalogue(), []

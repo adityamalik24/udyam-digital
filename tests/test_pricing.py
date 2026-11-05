@@ -15,3 +15,12 @@ def test_setup_and_contract_take_max():
 @pytest.mark.parametrize("bad", [{"P99": 1}, {"P01": 0}, {"P01": -2}])
 def test_rejects_bad(bad):
     with pytest.raises(ValueError): price(bad)
+
+
+def test_first_payment_total_and_summary():
+    from core.pricing import first_payment, contract_total, summary_text
+    q = price({"P23": 2, "P01": 1})
+    assert first_payment(q) == q.monthly + q.setup == 1597 + 3600
+    assert contract_total(q) == q.monthly * 12 + q.setup
+    text = summary_text(q, {"P01": "fibre"})
+    assert "Rs 1,597 per month" in text and "P01" not in text and "P23" not in text

@@ -142,3 +142,22 @@ def test_questions_asked_for_the_right_needs():
     assert not m("has_gstin", p("internet")) and m("has_gstin", p("customer_messaging"))
     assert not m("employees", p("website")) and not m("locations", p("website"))
     assert m("employees", p("cloud_email")) and m("locations", p("internet"))
+
+
+def _kirana():
+    return Profile(business_type="kirana", city_tier=1, employees=3, locations=1, has_gstin=False, needs=["internet"])
+
+
+def test_replaced_base_product_is_reported_and_notes_match_the_quote():
+    res = apply_addons(_kirana(), {"P04": 1}, {"P09"})
+    assert res["removed"] == {"P04": "P01"} and res["added"] == {"P01": "P09"}
+    mobile = apply_addons(_kirana(), {"P07": 1}, {"P23", "P09"})
+    assert set(mobile["added"]) <= set(mobile["items"]) and not mobile["removed"]
+
+
+def test_quantities_are_limited_and_only_for_countable_products():
+    prof = _kirana()
+    assert apply_addons(prof, {"P04": 1, "P23": 1}, set(), {"P23": 4})["items"]["P23"] == 4
+    assert apply_addons(prof, {"P04": 1, "P23": 1}, set(), {"P23": -3})["items"]["P23"] == 1
+    assert apply_addons(prof, {"P04": 1, "P23": 1}, set(), {"P23": 99999})["items"]["P23"] == 999
+    assert apply_addons(prof, {"P04": 1}, set(), {"P04": 5, "P23": 2}) ["items"] == {"P04": 1}  # per site, and not in the plan

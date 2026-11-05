@@ -30,6 +30,7 @@ Stretch goal: `Partner queue` lists advisor hand-offs and ranks leads lost to ou
 | Price = midpoint of the catalogue range | Activated leads average 0.48 of the range, with no difference by tier or segment |
 | Tier 3 gets no plan, and a hand-off | Every catalogue product is sold in Tier 1 and 2 only |
 | Single-site micro businesses get AirFiber first | Cheapest eligible link. Catalogue describes it as "for sites without fibre", so Fibre 100 is a ₹100 upgrade when fibre is wanted |
+| First payment = first month + setup | Our assumption; the data doesn't give billing terms |
 | Quote valid 15 days | Our assumption; the data doesn't specify one |
 | Udyam date and activity are not checked | They disagree with the registry for nearly all applicants including clean ones, so they look like generator noise |
 | Missing Udyam certificate = needs_review | The brief lists it as a required KYC document |

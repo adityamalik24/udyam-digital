@@ -219,8 +219,12 @@ def _alternative(rec: Recommendation, prof: Profile, needs: set[str]) -> None:
         rec.alternative, rec.alt_quote, rec.alt_kind = {"P07": base["P08"]}, price({"P07": base["P08"]}), "smaller_link"
 
 
-def apply_addons(prof: Profile, base: dict[str, int], selected: set[str]) -> dict:
-    """Toggle add-ons on the quote screen. Returns final items, dependency notes, blocked reasons."""
+ADJUSTABLE_UNITS = {"per camera", "per line", "per user", "per device", "per vehicle", "per counter", "per channel", "per number", "per IP", "per pack"}
+MAX_QTY = 999
+
+
+def apply_addons(prof: Profile, base: dict[str, int], selected: set[str], qty: dict[str, int] | None = None) -> dict:
+    """Add-ons and quantities from the quote screen. Returns final items, dependency notes, replaced base products, blocked reasons."""
     cat, items, blocked = catalogue(), dict(base), {}
     for pid in selected:
         good, r = eligible(pid, prof)
@@ -228,6 +232,13 @@ def apply_addons(prof: Profile, base: dict[str, int], selected: set[str]) -> dic
         else: blocked[pid] = r
     items, added = enforce_dependencies(items, prof)
     # A fibre-only add-on replaces AirFiber instead of billing two connections for one site.
-    if "P04" in items and set(added) & {"P01", "P02", "P03", "P05", "P06"}:
+    removed = {}
+    link = next((a for a in added if a in {"P01", "P02", "P03", "P05", "P06"}), None)
+    if "P04" in items and link:
         del items["P04"]
-    return {"items": items, "added": added, "blocked": blocked}
+        if "P04" in base: removed["P04"] = link
+    added = {a: b for a, b in added.items() if a in items}
+    for pid, n in (qty or {}).items():  # untrusted UI input: only countable products, within limits
+        if pid in items and catalogue()[pid].unit in ADJUSTABLE_UNITS:
+            items[pid] = min(max(int(n), 1), MAX_QTY)
+    return {"items": items, "added": added, "removed": removed, "blocked": blocked}

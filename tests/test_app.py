@@ -22,7 +22,7 @@ def test_chat_then_quote_then_accept():
     q.session_state["advisor"] = state
     q.run(); assert not q.exception
     assert f"{state.rec.quote.monthly:,}" in " ".join(m.value for m in q.markdown)
-    q.button[0].click().run(); assert not q.exception and q.session_state["order_id"]
+    next(b for b in q.button if b.label == "Accept quote").click().run(); assert not q.exception and q.session_state["order_id"]
 
 
 def test_rejected_kyc_cannot_be_advanced_verified_can():
@@ -128,3 +128,62 @@ def test_callback_form_needs_contact_and_consent_and_masks_in_queue():
     assert "9876543210" not in shown and "3210" in shown
     next(b for b in at.button if "Delete" in b.label).click().run()
     assert not at.exception and not at.success
+
+
+def _quote(*msgs):
+    s = State()
+    for m in msgs: turn(s, m)
+    q = AppTest.from_file(str(ROOT / "app/pages/2_Quote.py"), default_timeout=30)
+    q.session_state["advisor"] = s
+    return q.run()
+
+
+def _big(q): return next(m.value for m in q.markdown if 'class="big-price"' in m.value)
+CLINIC = "Clinic in Delhi, 6 staff, one location, have GSTIN, want email"
+
+
+def test_price_comes_before_addons_and_shows_totals():
+    q = _quote(CLINIC); assert not q.exception
+    labels = {m.label: m.value for m in q.metric}
+    assert labels["First payment"] == "₹2,671" and labels["Total over 12 months"] == f"₹{2671 * 12:,}"
+    assert any("about 5 days" in x.value and "estimate" in x.value for x in q.caption)
+    assert [b for b in q.button if "cheaper" in b.label]
+
+
+def test_accept_greys_out_at_once_and_replan_updates_the_same_order():
+    q = _quote(CLINIC)
+    accept = next(b for b in q.button if b.label == "Accept quote")
+    accept.click().run(); assert not q.exception
+    assert next(b for b in q.button if b.label == "Accept quote").disabled and q.success
+    oid = q.session_state["order_id"]
+    next(c for c in q.checkbox if c.key == "addon_P23").check().run()
+    accept = next(b for b in q.button if b.label == "Accept quote"); assert not accept.disabled
+    accept.click().run()
+    from core import orders
+    assert q.session_state["order_id"] == oid and orders.get(oid)["monthly"] == 2671 + 249
+
+
+def test_cheaper_option_switch_and_back():
+    q = _quote(CLINIC); assert "2,671" in _big(q)
+    assert any("Saves ₹100" in x.value for x in q.success)
+    next(b for b in q.button if "cheaper" in b.label).click().run(); assert not q.exception and "2,571" in _big(q)
+    next(b for b in q.button if "recommended" in b.label).click().run(); assert not q.exception and "2,671" in _big(q)
+
+
+def test_quantity_changes_the_server_price():
+    q = _quote(CLINIC)
+    next(n for n in q.number_input if n.key == "qty_P16").set_value(10).run(); assert not q.exception
+    assert f"{2671 + 4 * 138:,}" in _big(q)
+
+
+def test_replacing_airfiber_is_explained():
+    q = _quote("kirana in Pune, 3 people, one shop, no GST, need internet")
+    next(c for c in q.checkbox if c.key == "addon_P09").check().run(); assert not q.exception
+    notes = " ".join(i.value for i in q.info)
+    assert "replaces Biz 5G AirFiber 100" in notes and "12 months (it was 6)" in notes
+
+
+def test_current_bill_comparison_and_download():
+    q = _quote(CLINIC)
+    next(n for n in q.number_input if n.key == "current_bill").set_value(3000).run(); assert not q.exception
+    assert any("₹329 a month less" in m.value for m in q.markdown)

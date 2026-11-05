@@ -209,3 +209,10 @@ def test_rewrite_must_keep_cheaper_option_and_exclusions():
     assert G.dropped_facts("Biz Fibre 100 only.", draft, alt, ["Static IP"]) == ["cheaper option dropped", "exclusion Static IP dropped"]
     assert not G.dropped_facts("Fibre, or AirFiber at ₹999. Static IP isn't included.", draft, alt, ["Static IP"])
     assert G.check_reply("Biz Fibre 100 is a budget-friendly ₹1,099", price({"P01": 1}))
+
+
+def test_plan_changes_update_the_order_until_kyc_moves_it():
+    oid = orders.create("up", {"P01": 1}, price({"P01": 1}))
+    assert orders.update_quote(oid, {"P04": 1}, price({"P04": 1})) and orders.get(oid)["monthly"] == price({"P04": 1}).monthly
+    orders.advance(oid, "KYC verified")
+    assert not orders.update_quote(oid, {"P01": 1}, price({"P01": 1})) and orders.get(oid)["monthly"] == price({"P04": 1}).monthly
