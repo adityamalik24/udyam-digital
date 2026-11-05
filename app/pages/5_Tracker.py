@@ -5,10 +5,14 @@ import streamlit as st
 from core import consent, orders
 from core.pricing import TODAY
 t = c.setup("Tracker")
+c.journey("tracker", t)
 st.subheader(t["tracker"])
 oid = st.session_state.get("order_id") or orders.latest(c.user())
 if not oid:
-    st.info(t["no_order"]); st.stop()
+    st.info(t["no_order"])
+    if consent.records(c.user()):  # withdrawal must not depend on having an order
+        with st.expander(t["your_consent"]): c.consent_panel(t)
+    st.stop()
 o = orders.get(oid)
 names = dict(zip(orders.STAGES, t["stages"] or orders.STAGES))
 st.markdown(f"### {names[o['stage']]}")
@@ -30,13 +34,9 @@ if 3 <= o["stage_index"] < 5:
         d = st.date_input(t["new_date"], value=TODAY + timedelta(days=o["install_days"] + 1), min_value=TODAY)
         if st.button(t["resched_btn"]):
             orders.reschedule(oid, d); st.rerun()
-with st.expander(t["demo"]):
+with st.expander(t["demo"], expanded=st.session_state.get("demo_open", False)):  # stays open between taps
     st.caption(t["demo_note"])
     if orders.can_advance(o, verdict) and st.button(t["advance"]):
-        orders.advance(oid); st.rerun()
+        orders.advance(oid); st.session_state.demo_open = True; st.rerun()
 with st.expander(t["your_consent"]):
-    for r in consent.records(c.user()):
-        st.caption(f"{r['purpose']} · {r['notice_version']} · {t['granted']} {r['granted_at']}" + (f" · {t['withdrawn']} {r['withdrawn_at']}" if r["withdrawn_at"] else ""))
-    for p in consent.active(c.user()):
-        if st.button(f"{t['withdraw']}: {p}", key=f"w_{p}"):
-            consent.withdraw(c.user(), p); st.rerun()
+    c.consent_panel(t)

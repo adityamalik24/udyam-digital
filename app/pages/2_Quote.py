@@ -1,12 +1,13 @@
 import sys; from pathlib import Path; sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import common as c
 import streamlit as st
-from core import orders
+from core import consent, orders
 from core.advisor import why_text, trade_text
 from core.catalogue import catalogue
 from core.pricing import price, first_payment, contract_total, summary_text
 from core.rules import apply_addons, eligible, reason_text, ADJUSTABLE_UNITS, MAX_QTY
 t = c.setup("Quote")
+c.journey("quote", t)
 st.subheader(t["quote"])
 s = st.session_state.advisor
 if not (s.rec and s.rec.quote):
@@ -25,7 +26,7 @@ price_box, notes_box, alt_box, lines_box = st.container(), st.container(), st.co
 # Which plan: the recommended one, or the cheaper option if the owner switched. A new chat plan resets the choice.
 plan_id = tuple(sorted(rec.items.items()))
 if st.session_state.get("plan_id") != plan_id:
-    st.session_state.plan_id, st.session_state.use_alt = plan_id, False
+    st.session_state.plan_id, st.session_state.use_alt, st.session_state.saved_qty, st.session_state.has_gstin_tick = plan_id, False, {}, False
 use_alt = bool(st.session_state.use_alt and rec.alternative)
 base = rec.alternative if use_alt else rec.items
 
@@ -34,8 +35,10 @@ selected = set(st.session_state.get("addons", set()))
 new_sel = set()
 with st.expander(t["addons"], expanded=False):
     # The chat only asks what its plan depends on, so an add-on can need an answer it never asked for.
-    if prof.has_gstin is None and st.checkbox(W("My business has a GSTIN", "मेरे बिज़नेस का GSTIN है"), key="quote_gstin"):
-        prof = prof.model_copy(update={"has_gstin": True})
+    # Streamlit wipes widget values on a page change, so these choices are also kept outside the widgets.
+    if prof.has_gstin is None:
+        st.session_state.has_gstin_tick = st.checkbox(W("My business has a GSTIN", "मेरे बिज़नेस का GSTIN है"), value=st.session_state.get("has_gstin_tick", False), key="quote_gstin")
+        if st.session_state.has_gstin_tick: prof = prof.model_copy(update={"has_gstin": True})
     for pid in [a for a in ADDONS if a not in base]:
         ok, reason = eligible(pid, prof)
         label = f"{cat[pid].name} · ₹{cat[pid].monthly:,}/{cat[pid].unit.replace('per ', '')}"
@@ -45,7 +48,8 @@ with st.expander(t["addons"], expanded=False):
             st.checkbox(f"{label} ({reason_text(reason, lang)})", value=False, disabled=True, key=f"addon_{pid}")
 st.session_state.addons = new_sel
 
-qty = {p: st.session_state[f"qty_{p}"] for p in cat if f"qty_{p}" in st.session_state}
+qty = st.session_state.setdefault("saved_qty", {})
+qty.update({p: st.session_state[f"qty_{p}"] for p in cat if f"qty_{p}" in st.session_state})
 res = apply_addons(prof, base, new_sel, qty)
 q = price(res["items"])  # always recomputed on the server from product ids, never read from UI state
 
@@ -98,10 +102,15 @@ with st.expander(W("Compare with your current bill", "अपने मौजू�
 st.download_button(W("Download this quote", "यह कोटेशन डाउनलोड करें"), summary_text(q, {p: cat[p].description for p in res["items"]}), "accel_business_quote.txt", "text/plain", use_container_width=True)
 
 already = st.session_state.get("accepted_items") == res["items"]  # a second tap must not create or change an order
-if st.button(t["accept"], type="primary", use_container_width=True, disabled=already):
-    oid = st.session_state.get("order_id")
-    if not (oid and orders.update_quote(oid, res["items"], q)):  # changed the plan before KYC: same order, not a second one
-        st.session_state.order_id = orders.create(c.user(), res["items"], q)
+oid = st.session_state.get("order_id")
+paid = bool(oid) and orders.get(oid)["stage_index"] >= 2  # a paid order is never rewritten: a different plan is a separate order
+if paid and not already: st.caption(W("Your paid order stays as it is. Accepting this plan starts a separate order.", "आपका भुगतान किया गया ऑर्डर वैसा ही रहेगा। यह प्लान स्वीकार करने पर एक अलग ऑर्डर शुरू होगा।"))
+if st.button(W("Accept as a new order", "नए ऑर्डर के रूप में स्वीकार करें") if paid and not already else t["accept"], type="primary", use_container_width=True, disabled=already):
+    if not (oid and orders.update_quote(oid, res["items"], q)):  # changed the plan before payment: same order, not a second one
+        st.session_state.order_id = oid = orders.create(c.user(), res["items"], q)
+    last = consent.latest_kyc(c.user())
+    if last and last["verdict"] == "verified" and orders.get(oid)["stage"] == "Quote accepted":  # KYC done first must not strand the order
+        orders.advance(oid, "KYC verified")
     st.session_state.accepted_items = dict(res["items"])
     st.rerun()
 if already: st.success(t["accepted"])

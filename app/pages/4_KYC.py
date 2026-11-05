@@ -5,6 +5,7 @@ from PIL import Image
 from core import consent, orders
 from core.kyc.pipeline import verify_images, load_specimen
 t = c.setup("KYC")
+c.journey("kyc", t)
 st.subheader(t["kyc"])
 if consent.KYC not in consent.active(c.user()):
     st.warning(t["first_consent"]); c.link("pages/3_Consent.py", label=t["consent"], icon="✅"); st.stop()
@@ -30,6 +31,8 @@ if st.button(t["verify"], type="primary", use_container_width=True, disabled=not
     st.session_state.upload_nonce = st.session_state.get("upload_nonce", 0) + 1  # new widget keys drop the uploaded files from the session
     st.rerun()
 res = st.session_state.get("kyc_result")
+if res and consent.latest_kyc(c.user()) is None:  # erased when consent was withdrawn: never show it again
+    st.session_state.pop("kyc_result"); res = None
 if res:
     {"verified": st.success, "needs_review": st.warning, "rejected": st.error}[res["verdict"]](f"**{t['verdicts'][res['verdict']]}**: {res['reason']}")
     for p in res["passed"]: st.markdown(f"✓ {p}")
@@ -39,5 +42,6 @@ last = consent.latest_kyc(c.user())
 oid = st.session_state.get("order_id")
 if oid and last and last["verdict"] == "verified" and orders.get(oid)["stage"] == "KYC verified":
     if st.button(t["pay"], use_container_width=True):
-        orders.advance(oid, "Payment done"); st.success(t["paid"])
+        orders.advance(oid, "Payment done"); st.session_state.paid_notice = True; st.rerun()  # rerun so the progress bar shows it too
+if st.session_state.pop("paid_notice", False): st.success(t["paid"])
 c.link("pages/5_Tracker.py", label=t["tracker"], icon="📦")

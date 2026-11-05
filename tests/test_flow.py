@@ -211,11 +211,66 @@ def test_rewrite_must_keep_cheaper_option_and_exclusions():
     assert G.check_reply("Biz Fibre 100 is a budget-friendly ₹1,099", price({"P01": 1}))
 
 
-def test_plan_changes_update_the_order_until_kyc_moves_it():
+def test_plan_changes_update_the_order_until_it_is_paid():
     oid = orders.create("up", {"P01": 1}, price({"P01": 1}))
     assert orders.update_quote(oid, {"P04": 1}, price({"P04": 1})) and orders.get(oid)["monthly"] == price({"P04": 1}).monthly
     orders.advance(oid, "KYC verified")
-    assert not orders.update_quote(oid, {"P01": 1}, price({"P01": 1})) and orders.get(oid)["monthly"] == price({"P04": 1}).monthly
+    assert orders.update_quote(oid, {"P01": 1}, price({"P01": 1})) and orders.get(oid)["monthly"] == price({"P01": 1}).monthly
+    orders.advance(oid, "Payment done")
+    assert not orders.update_quote(oid, {"P04": 1}, price({"P04": 1})) and orders.get(oid)["monthly"] == price({"P01": 1}).monthly
+
+
+def test_journey_only_counts_what_really_happened():
+    from core import journey as j
+    fresh = j.progress(None, False, None)
+    assert set(fresh) == set(j.STEPS) and set(fresh.values()) == {j.TODO}
+    assert j.progress(None, True, "verified") == {**fresh, "consent": j.DONE, "kyc": j.DONE}  # KYC first: no order, so no quote or payment tick
+    for verdict in ("needs_review", "rejected"):
+        assert j.progress(None, True, verdict)["kyc"] == j.ATTENTION
+    oid = orders.create("jr", {"P01": 1}, price({"P01": 1}))
+    done_at = {}
+    for i, stage in enumerate(orders.STAGES):
+        if i: orders.advance(oid, stage)
+        done_at[stage] = j.progress(orders.get(oid), True, "verified")
+    assert done_at["KYC verified"]["payment"] == j.TODO and done_at["Payment done"]["payment"] == j.DONE
+    assert done_at["Installed"]["tracker"] == j.TODO and done_at["Activated"]["tracker"] == j.DONE
+    # Withdrawn after payment: the payment happened, but consent and KYC no longer stand.
+    assert j.progress(orders.get(oid), False, None) == {"quote": j.DONE, "consent": j.TODO, "kyc": j.TODO, "payment": j.DONE, "tracker": j.DONE}
+
+
+def test_journey_points_at_payment_only_when_it_can_be_paid():
+    from core import journey as j
+    ready = {"quote": j.DONE, "consent": j.DONE, "kyc": j.DONE, "payment": j.TODO, "tracker": j.TODO}
+    assert j.current("kyc", ready) == "payment" and j.current("consent", ready) == "consent"
+    assert j.current("kyc", {**ready, "quote": j.TODO}) == "kyc"  # nothing to pay for yet
+    assert j.current("kyc", {**ready, "kyc": j.ATTENTION}) == "kyc" and j.current("kyc", {**ready, "payment": j.DONE}) == "kyc"
+
+
+def test_receipt_records_each_purpose_and_holds_no_document_data():
+    from core import consent
+    consent.grant("rc", consent.KYC, "hi"); consent.grant("rc", consent.UPDATES, "en")
+    consent.save_kyc("rc", "verified", "ok", '{"gstin_masked": "****1234"}')
+    consent.withdraw("rc", consent.UPDATES)
+    en, hi = consent.receipt_text("rc", "en"), consent.receipt_text("rc", "hi")
+    recs = consent.records("rc")
+    assert "KYC verification" in en and "Order updates" in en and consent.NOTICE_VERSION in en and "rc" in en
+    assert en.count("Status: Active") == 1 and en.count("Status: Withdrawn") == 1
+    assert recs[0]["granted_at"][:16].replace("T", " ") in en and recs[1]["withdrawn_at"][:16].replace("T", " ") in en
+    assert "हिन्दी" in en and "English" in en  # the language each notice was actually shown in
+    assert "KYC सत्यापन" in hi and "सक्रिय" in hi and "UTC" in hi
+    for leak in ("1234", "verified", "gstin"): assert leak not in en.lower()
+
+
+def test_documents_to_keep_ready_match_what_kyc_checks():
+    from core import consent
+    from core.kyc.checks import BILL_MAX_AGE_DAYS
+    from core.kyc.pipeline import FILES
+    assert set(consent.DOCS_NEEDED) == set(FILES)
+    for lang in ("en", "hi"):
+        assert f"{BILL_MAX_AGE_DAYS} " in consent.DOCS_NEEDED["bill"][lang][1]
+        words = " ".join(" ".join(d[lang]) for d in consent.DOCS_NEEDED.values()) + consent.DOCS_TIP[lang] + consent.NOTICE_SHORT[lang]
+        for banned in ("aadhaar", "आधार", "bank", "बैंक"): assert banned not in words.lower()  # never ask for these
+        for banned in (" pan ", " पैन "): assert banned not in f" {words.lower()} "
 
 
 @pytest.mark.parametrize("claim", ["the best plan", "सबसे बढ़िया प्लान", "sabse badhiya plan", "a perfect fit"])

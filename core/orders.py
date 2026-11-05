@@ -19,8 +19,8 @@ def create(user: str, items: dict[str, int], q: Quote) -> int:
 
 
 def update_quote(oid: int, items: dict[str, int], q: Quote) -> bool:
-    """Replace the plan on an order nothing has happened to yet. False once KYC has moved it on."""
-    if get(oid)["stage_index"] != 0: return False
+    """Replace the plan on an unpaid order. KYC checks the business, not the plan, so it stays valid. False once paid."""
+    if get(oid)["stage_index"] >= 2: return False
     with db.conn() as c:
         c.execute("UPDATE orders SET items=?,monthly=?,setup=?,contract=?,install_days=? WHERE id=?", (json.dumps(items), q.monthly, q.setup, q.contract, q.install_days, oid))
     return True
