@@ -67,3 +67,14 @@ def test_start_over_clears_the_visible_chat():
     assert not at.exception
     assert len(at.session_state["chat"]) == 1 and "start over" in at.session_state["chat"][0][1]
     assert at.session_state["advisor"].profile.business_type is None
+
+
+def test_chat_from_before_a_deploy_does_not_crash():
+    old = State(); turn(old, "clinic in Delhi")
+    for field in ("restarted", "declined", "stuck"): delattr(old, field)
+    at = AppTest.from_file(str(ROOT / "app/pages/1_Advisor.py"), default_timeout=30)
+    at.session_state["advisor"] = old
+    at.session_state["chat"] = [("assistant", "old message")]
+    at.run(); assert not at.exception
+    at.chat_input[0].set_value("kirana in Pune").run(); assert not at.exception
+    assert at.session_state["advisor"].profile.business_type == "kirana"

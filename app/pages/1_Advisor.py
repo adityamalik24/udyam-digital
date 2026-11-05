@@ -16,7 +16,7 @@ if prompt := st.chat_input("Type here / यहाँ लिखें"):
     with st.spinner("..."):
         reply = turn(s, prompt)
     # Only the redacted form of what the user typed is kept, so identifiers vanish from the transcript too.
-    if s.restarted:
+    if getattr(s, "restarted", False):  # a session from before a deploy may not have this field
         st.session_state.chat = [("assistant", reply)]
         st.session_state.pop("addons", None)
     else:

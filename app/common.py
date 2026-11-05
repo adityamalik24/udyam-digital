@@ -21,6 +21,9 @@ def setup(title: str):
     st.set_page_config(page_title=f"{title} · Accel Business", page_icon="📶", layout="centered")
     st.markdown("<style>.block-container{padding:1.2rem 1rem 4rem;max-width:720px}.big-price{font-size:2.6rem;font-weight:700;line-height:1.1}</style>", unsafe_allow_html=True)
     st.session_state.setdefault("advisor", State())
+    # A chat that began before a deploy can miss newer fields: start it fresh instead of crashing.
+    if any(not hasattr(st.session_state.advisor, f) for f in State.__dataclass_fields__):
+        st.session_state.advisor, st.session_state.chat = State(), []
     st.session_state.setdefault("ui_lang", "en")
     st.session_state.setdefault("chat", [])
     st.session_state.setdefault("synced_lang", "en")
