@@ -78,3 +78,17 @@ def test_chat_from_before_a_deploy_does_not_crash():
     at.run(); assert not at.exception
     at.chat_input[0].set_value("kirana in Pune").run(); assert not at.exception
     assert at.session_state["advisor"].profile.business_type == "kirana"
+
+
+def test_new_chat_button_resets_the_chat_and_keeps_the_language():
+    at = AppTest.from_file(str(ROOT / "app/pages/1_Advisor.py"), default_timeout=30).run()
+    assert not at.button  # nothing to clear yet
+    at.chat_input[0].set_value("Clinic in Delhi, 6 staff, one location, have GSTIN, want email").run()
+    assert at.session_state["advisor"].rec.quote
+    at.button[0].click().run(); assert not at.exception
+    s = at.session_state["advisor"]
+    assert s.rec is None and s.profile.business_type is None and len(at.session_state["chat"]) == 1
+    at.chat_input[0].set_value("मेरा क्लिनिक है").run()
+    at.button[0].click().run(); assert not at.exception
+    assert at.session_state["ui_lang"] == "hi" and at.session_state["advisor"].profile.language == "hi"
+    assert "नमस्ते" in at.session_state["chat"][0][1]

@@ -1,10 +1,17 @@
 import sys; from pathlib import Path; sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import common as c
 import streamlit as st
-from core.advisor import turn, TXT
+from core.advisor import State, turn, TXT
+from core.rules import Profile
 t = c.setup("Advisor")
 st.subheader(t["advisor"])
 s = st.session_state.advisor
+if len(st.session_state.chat) > 1 and st.button({"en": "New chat", "hi": "नई चैट"}[st.session_state.ui_lang], icon="🔄"):
+    # Clears the answers and the quote, keeps the language. An accepted order stays in the tracker.
+    st.session_state.advisor = State(profile=Profile(language=s.profile.language))
+    st.session_state.chat = []
+    st.session_state.pop("addons", None)
+    st.rerun()
 if not st.session_state.chat:
     welcome = {"en": TXT["welcome"]["en"] + " " + "What kind of business do you run?",
                "hi": "नमस्ते! मैं आपका Accel Business सलाहकार हूँ। आपका बिज़नेस किस तरह का है?"}[st.session_state.ui_lang]
