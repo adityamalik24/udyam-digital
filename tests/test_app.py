@@ -23,3 +23,38 @@ def test_chat_then_quote_then_accept():
     q.run(); assert not q.exception
     assert f"{state.rec.quote.monthly:,}" in " ".join(m.value for m in q.markdown)
     q.button[0].click().run(); assert not q.exception and q.session_state["order_id"]
+
+
+def test_rejected_kyc_cannot_be_advanced_verified_can():
+    from core import consent, orders
+    from core.pricing import price
+    oid = orders.create("gate-user", {"P01": 1}, price({"P01": 1}))
+    consent.grant("gate-user", consent.KYC, "en")
+    k = AppTest.from_file(str(ROOT / "app/pages/4_KYC.py"), default_timeout=120)
+    k.session_state["user"], k.session_state["order_id"] = "gate-user", oid
+    k.run(); assert not k.exception
+    k.selectbox[0].set_value("K01").run()
+    k.button[0].click().run(); assert not k.exception
+    assert any("Rejected" in e.value for e in k.error) and orders.get(oid)["stage"] == "Quote accepted"
+    t = AppTest.from_file(str(ROOT / "app/pages/5_Tracker.py"), default_timeout=30)
+    t.session_state["user"], t.session_state["order_id"] = "gate-user", oid
+    t.run(); assert not t.exception
+    assert t.warning and not [b for b in t.button if b.label == "Advance stage"]
+    k.selectbox[0].set_value("K03").run()
+    k.button[0].click().run(); assert not k.exception
+    assert any("Verified" in e.value for e in k.success) and orders.get(oid)["stage"] == "KYC verified"
+    t.run(); assert [b for b in t.button if b.label == "Advance stage"]
+
+
+def test_two_sessions_do_not_share_an_identity():
+    a = AppTest.from_file(str(ROOT / "app/pages/3_Consent.py"), default_timeout=30).run()
+    b = AppTest.from_file(str(ROOT / "app/pages/3_Consent.py"), default_timeout=30).run()
+    assert not a.exception and not b.exception
+
+
+def test_hindi_chat_switches_quote_page_to_hindi():
+    q = AppTest.from_file(str(ROOT / "app/pages/2_Quote.py"), default_timeout=30)
+    s = State(); turn(s, "मेरा क्लिनिक है, दिल्ली में, 6 लोग, एक ही, GSTIN है, ईमेल चाहिए")
+    q.session_state["advisor"] = s
+    q.run(); assert not q.exception and q.session_state["ui_lang"] == "hi"
+    assert any("प्रति माह" in m.value for m in q.markdown)

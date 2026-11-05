@@ -8,14 +8,15 @@ from .pricing import price, Quote
 MICRO = {"kirana", "salon", "pharmacy", "retailer", "bakery", "shop"}
 NEEDS = ["internet", "internet_for_upi_pos", "uptime", "failover", "customer_messaging", "sms", "cloud_email",
          "storage", "security", "firewall", "cctv", "wifi", "pos_billing", "website", "dedicated_bandwidth",
-         "high_speed", "iot", "fleet", "telephony", "toll_free", "static_ip", "sdwan", "mobile_line"]
+         "high_speed", "iot", "fleet", "telephony", "toll_free", "static_ip", "sdwan", "mobile_line", "mobile_premium"]
 # Bought standalone: these carry their own connectivity or need none.
-STANDALONE = {"mobile_line", "website", "fleet", "iot", "sms", "customer_messaging", "toll_free"}
-EXISTING_LINK = {"business_broadband", "leased_line"}
+STANDALONE = {"mobile_premium", "mobile_line", "website", "fleet", "iot", "sms", "customer_messaging", "toll_free"}
+EXISTING_LINK = {"business_broadband", "leased_line", "existing_link"}
+LARGE_STAFF, LARGE_SITES = 1000, 100  # far beyond small business: a person should check these
 NEED_PRODUCT = {"failover": "P09", "uptime": "P09", "customer_messaging": "P15", "sms": "P14", "cloud_email": "P16",
                 "storage": "P17", "security": "P20", "firewall": "P21", "cctv": "P23", "wifi": "P22", "pos_billing": "P19",
                 "website": "P18", "iot": "P24", "fleet": "P25", "telephony": "P12", "toll_free": "P13",
-                "static_ip": "P11", "sdwan": "P10", "mobile_line": "P07"}
+                "static_ip": "P11", "sdwan": "P10", "mobile_line": "P07", "mobile_premium": "P08"}
 FIBRE_ONLY = {"P09", "P10", "P11", "P21"}  # their requires_one_of excludes AirFiber (P04)
 PROFESSIONAL = {"clinic", "ca_firm", "coaching", "law", "office"}
 
@@ -84,7 +85,7 @@ class Recommendation:
 def _qty(pid: str, prof: Profile) -> int:
     sites, staff = max(prof.locations or 1, 1), max(prof.employees or 1, 1)
     p = catalogue()[pid]
-    if pid == "P07": return max(prof.sim_lines, 1)
+    if pid in ("P07", "P08"): return max(prof.sim_lines, 1)
     if pid == "P23": return max(prof.cameras, 1) * sites
     if pid == "P25": return max(prof.vehicles, 1)
     if pid == "P24": return max(prof.devices_iot, 1)
@@ -141,7 +142,7 @@ def recommend(prof: Profile) -> Recommendation:
         rec.excluded += [e for e in exc if e[0] not in {x[0] for x in rec.excluded}]
         if link:
             items = {link: _qty(link, prof), **items}
-            rec.why.setdefault(link, next(iter(wants_link), "internet"))
+            rec.why[link] = next((n for n in ("dedicated_bandwidth", "high_speed", "internet_for_upi_pos") if n in needs), "internet")
             if not wants_link and deps:
                 rec.auto_added[link] = deps[0]
     rec.items = enforce_dependencies(items, prof)[0]
@@ -150,6 +151,8 @@ def recommend(prof: Profile) -> Recommendation:
     if rec.items:
         rec.quote = price(rec.items)
         _alternative(rec, prof, needs)
+    if (prof.employees or 0) >= LARGE_STAFF or (prof.locations or 0) >= LARGE_SITES:
+        rec.handoff = rec.handoff or "large_account"
     if (prof.locations or 1) >= 2:
         rec.handoff = rec.handoff or "multi_site"
     unmet = {x[0] for x in rec.excluded} & {"P05", "P06", "P24", "P10"}
@@ -198,4 +201,7 @@ def apply_addons(prof: Profile, base: dict[str, int], selected: set[str]) -> dic
         if good: items.setdefault(pid, _qty(pid, prof))
         else: blocked[pid] = r
     items, added = enforce_dependencies(items, prof)
+    # A fibre-only add-on replaces AirFiber instead of billing two connections for one site.
+    if "P04" in items and set(added) & {"P01", "P02", "P03", "P05", "P06"}:
+        del items["P04"]
     return {"items": items, "added": added, "blocked": blocked}

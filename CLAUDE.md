@@ -11,9 +11,15 @@ Build only what is judged. Correctness > polish.
 3. Signals are planted in `smb_leads.csv`. Back business claims with numbers.
 4. Technical depth and business judgement are scored together.
 
+## What the brief also requires
+- The advisor asks about type, size, locations and **current tools**, and **explains why** in plain language.
+- Consent and data handling follow the DPDP Act, 2023.
+- Submit: demo video of **3 minutes max** + code repo; architecture diagram; business case in **10 slides or fewer**; **1-page** privacy and security note.
+- Answer: which segments first, bundle per segment, field force and partner role, 3–5 metrics with targets.
+
 ## Data facts (from data/README.md; these override assumptions)
 - "Today" for all date checks is **2026-07-15** (`core.pricing.TODAY`). Address proof must be no older than 90 days.
-- Every catalogue product is sold in **Tier 1 and 2 only**. Tier 3 has no eligible product: say so and hand off.
+- Every catalogue product is sold in **Tier 1 and 2 only** (Biz Fibre 1G, P03, in Tier 1 only). Tier 3 has no eligible product: say so and hand off.
 - Prices are ranges. We quote the **midpoint**; activated leads average 0.48 of the range, with no tier or segment effect.
 - GSTIN PAN 4th char is always `X`, which is valid here. Udyam district is always `00`.
 - Udyam date and activity disagree with the registry on nearly all applicants, including clean ones: generator noise, do not check.

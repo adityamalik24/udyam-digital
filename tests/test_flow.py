@@ -87,3 +87,37 @@ def test_extra_scenario_sets_pass():
     for f in ("advisor_dev.yaml", "advisor_unseen.yaml"):
         r = subprocess.run([sys.executable, str(root / "run_scenarios.py"), str(root / f)], capture_output=True, text=True)
         assert r.returncode == 0, r.stdout[-800:]
+
+
+def test_kyc_gate_on_order_stages():
+    oid = orders.create("gate", {"P01": 1}, price({"P01": 1}))
+    o = orders.get(oid)
+    assert not orders.can_advance(o, None) and not orders.can_advance(o, "rejected") and not orders.can_advance(o, "needs_review")
+    assert orders.can_advance(o, "verified")
+
+
+def test_rewrite_may_not_add_a_date_or_number():
+    q = price({"P01": 1})
+    draft = "Biz Fibre 100: ₹1,099 per month"
+    assert not G.check_reply("Biz Fibre 100 costs ₹1,099 per month", q, draft=draft)
+    assert G.check_reply("Biz Fibre 100 costs ₹1,099 per month, live in 3 days", q, draft=draft)
+    assert G.check_reply("Biz Fibre 100 at 1,099 per month or 799 per month", q)
+
+
+def test_llm_failure_pauses_instead_of_stalling():
+    class Boom:
+        class models:
+            @staticmethod
+            def generate_content(**k): raise TimeoutError("hung")
+    llm._paused_until = 0.0
+    assert llm._call("s", "u", Boom()) is None and llm.last_error == "TimeoutError"
+    assert llm._paused_until > 0
+    llm._paused_until = 0.0; llm.last_error = None
+
+
+def test_llm_cannot_add_a_declined_need_or_bad_type(monkeypatch):
+    s = advisor.State(); s.declined = ["cctv"]
+    monkeypatch.setattr(llm, "client", lambda: object())
+    monkeypatch.setattr(llm, "extract", lambda t, n: {"needs": ["cctv", "storage"], "business_type": "<script>", "employees": True})
+    advisor._merge_llm(s, "text", {})
+    assert s.profile.needs == ["storage"] and s.profile.business_type is None and s.profile.employees is None

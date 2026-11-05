@@ -26,9 +26,9 @@ a = st.checkbox("KYC सत्यापन के लिए मेरे दस�
 b = st.checkbox("WhatsApp/SMS पर ऑर्डर अपडेट भेजें (वैकल्पिक)" if hi else "Send order updates on WhatsApp/SMS (optional)", value=False)
 if st.button("सहमति सहेजें" if hi else "Save consent", type="primary", disabled=not a, use_container_width=True):
     lang = st.session_state.ui_lang
-    have = consent.active(c.USER)
-    if consent.KYC not in have: consent.grant(c.USER, consent.KYC, lang)
-    if b and consent.UPDATES not in have: consent.grant(c.USER, consent.UPDATES, lang)
+    have = consent.active(c.user())
+    if consent.KYC not in have: consent.grant(c.user(), consent.KYC, lang)
+    if b and consent.UPDATES not in have: consent.grant(c.user(), consent.UPDATES, lang)
     st.success("Saved")
-if consent.KYC in consent.active(c.USER):
+if consent.KYC in consent.active(c.user()):
     c.link("pages/4_KYC.py", label=t["kyc"], icon="🪪")

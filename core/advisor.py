@@ -4,7 +4,8 @@ import re
 from dataclasses import dataclass, field
 from . import guardrails as G, llm
 from .catalogue import catalogue
-from .rules import Profile, Recommendation, recommend, reason_text, NEEDS
+from .kyc import registry
+from .rules import Profile, Recommendation, recommend, reason_text, NEEDS, MICRO
 
 TIER1 = {"delhi": "दिल्ली", "mumbai": "मुंबई", "bengaluru": "बेंगलुरु", "bangalore": "बैंगलोर", "chennai": "चेन्नई", "kolkata": "कोलकाता", "hyderabad": "हैदराबाद", "pune": "पुणे", "ahmedabad": "अहमदाबाद",
          "gurgaon": "गुड़गांव", "gurugram": "गुरुग्राम", "noida": "नोएडा"}
@@ -14,24 +15,62 @@ TIER2 = {"kochi": "कोच्चि", "ludhiana": "लुधियाना", 
 TIER3 = {"sitapur": "सीतापुर", "hardoi": "हरदोई", "ballia": "बलिया", "buxar": "बक्सर", "barmer": "बाड़मेर", "chhindwara": "छिंदवाड़ा", "darbhanga": "दरभंगा", "gaya": "गया", "bareilly": "बरेली", "sagar": "सागर",
          "satara": "सातारा", "jhansi": "झांसी", "ratlam": "रतलाम", "hisar": "हिसार", "karnal": "करनाल", "muzaffarpur": "मुजफ्फरपुर"}
 TIER2.update({"kanpur": "कानपुर", "agra": "आगरा", "varanasi": "वाराणसी", "chandigarh": "चंडीगढ़", "rajkot": "राजकोट", "amritsar": "अमृतसर", "ranchi": "रांची", "raipur": "रायपुर", "guwahati": "गुवाहाटी", "bhubaneswar": "भुवनेश्वर", "dehradun": "देहरादून", "madurai": "मदुरै", "vijayawada": "विजयवाड़ा", "thiruvananthapuram": "तिरुवनंतपुरम", "aurangabad": "औरंगाबाद", "meerut": "मेरठ"})
+TIER1.update({"bombay": "बॉम्बे", "calcutta": "कलकत्ता", "madras": "मद्रास"})
+TIER2.update({"cochin": "कोचीन", "baroda": "बड़ौदा", "trivandrum": "त्रिवेंद्रम"})
 CITY_TIER = {**{c: 1 for c in TIER1}, **{c: 2 for c in TIER2}, **{c: 3 for c in TIER3}}
 HI_CITY = {v: k for d in (TIER1, TIER2, TIER3) for k, v in d.items()}
 
+# These are also everyday words or names ("internet band ho gaya", "Sagar Medical"), so they need place context.
+AMBIGUOUS = {"gaya", "sagar"}
+NOT_PLACE = {"the", "our", "my", "one", "english", "hindi", "hinglish", "town", "tier", "metro", "india", "business", "this", "that", "all", "each", "small", "home", "night", "morning", "evening", "day", "daytime", "office", "shop", "store", "clinic", "market", "future", "present", "total", "general", "case", "peak", "summer", "winter", "rain", "rains", "monsoon", "advance", "front", "addition", "cash", "person", "bulk", "touch", "time", "charge", "short", "mind", "place", "life", "years", "months", "days", "house", "area", "city", "village", "both", "any", "every", "some", "there", "here", "which", "what", "order", "you", "your", "scratch", "accel", "customers", "them", "us", "it", "need", "just", "only", "last", "next", "first"}
+ASKING = re.compile(r"\?|^\W*(what|why|how|which|when|where|who|kya|kaise|kyun|क्या|कैसे|क्यों)\b|^\W*$")  # a question or nothing is not an answer
+VAGUE = re.compile(r"not sure|no idea|don'?t know|dont know|\bidk\b|pata nahi|pata nahin|kuch bhi|jo best|aap batao|you (decide|tell|suggest)|whatever|anything|पता नहीं|कुछ भी|आप बताओ|आप बताइए|^\W*(hi|hello|hey|namaste|नमस्ते)\W*$", re.I)
+GST_WORD = r"(?:gst(?:in| number| no| registration)?|जीएसटी(?:आईएन)?)"
+GST_BAD = re.compile(rf"{GST_WORD}\W+(\w+\W+){{0,3}}(cancel|suspend|expired|revoked|band ho|applied|pending|in process|not received|रद्द|निलंबित)|(cancel\w*|suspend\w*|expired|revoked)\W+(\w+\W+){{0,2}}{GST_WORD}|appl(y|ied)\w*\W+(for\W+)?{GST_WORD}", re.I)
+GST_UNSURE = re.compile(rf"(not sure|don'?t know|dont know|no idea|pata nahi|unsure|पता नहीं).{{0,30}}{GST_WORD}|{GST_WORD}.{{0,30}}(not sure|don'?t know|pata nahi|पता नहीं)", re.I)
+EXISTING = re.compile(r"(already|existing|pehle se)\W+(\w+\W+){0,3}(internet|broadband|fibre|fiber|wi-?fi|net connection)|(?<!don't )(?<!dont )\b(we|i) (have|use|got) (an? |our )?(?!no\b|not\b|poor\b|bad\b|slow\b)(\w+ )?(internet|broadband|fibre|fiber)\b|(internet|broadband|fibre|fiber|wi-?fi) (already|pehle se)|पहले से.{0,20}(इंटरनेट|ब्रॉडबैंड)|(इंटरनेट|ब्रॉडबैंड).{0,10}पहले से", re.I)
+NEG_BEFORE = re.compile(r"(don'?t|dont|do not)\s+(want|need|require)\b|\bno need\b|\b(remove|drop|delete|cancel|skip|exclude)\b|(?<!can't work )(?<!cannot work )\bwithout\b|\b(hatao|hata do)\b|हटाओ|हटा दो", re.I)
+NEG_AFTER = re.compile(r"^\W*(?:\S+\s+){0,2}?(nahi chahiye|nahin chahiye|nahi lena|mat (?:do|lagao|dena)|not needed|not required|hatao|hata do|ki zaroorat nahi|की ज़रूरत नहीं|नहीं चाहिए|हटाओ|हटा दो)", re.I)
+CLAUSE = re.compile(r"[,.;]|\bbut\b|\bonly\b|\bjust\b|\bsirf\b|\bbas\b|\blekin\b|लेकिन|सिर्फ")
+
+
+def _negated(t: str, start: int, end: int) -> bool:
+    return bool(NEG_BEFORE.search(CLAUSE.split(t[:start])[-1]) or NEG_AFTER.search(CLAUSE.split(t[end:])[0]))
+
+
+def _find_city(t: str, text: str, awaiting: str | None) -> str | None:
+    """Best city in the message. "in X" outranks a bare mention, so "Delhi Sweets in Pune" means Pune."""
+    bare = awaiting == "city" and len(t.split()) <= 3
+    hits = []
+    for c in CITY_TIER:
+        for m in re.finditer(rf"\b{c}\b", t):
+            marked = bool(re.search(r"\b(in|at|from|near|to)\s+$", t[:m.start()]) or re.match(r"\s*(mein|me|se|city)\b", t[m.end():]))
+            if c in AMBIGUOUS and not (marked or bare): continue
+            hits.append((0 if marked else 1, m.start(), c))
+    for hi, c in HI_CITY.items():
+        i = text.find(hi)
+        if i < 0: continue
+        marked = bool(re.match(r"\s*(में|से|शहर)", text[i + len(hi):]))
+        if c in AMBIGUOUS and not (marked or bare): continue
+        hits.append((0 if marked else 1, i, c))
+    return min(hits)[2] if hits else None
+
+
 # Recognised as places, but with no tier in our data, so the advisor asks instead of guessing.
 UNLISTED = ["kota", "goa", "udaipur", "jodhpur", "ajmer", "gwalior", "jabalpur", "mangalore", "hubli", "tirupati", "shimla", "jammu", "siliguri"]
-BTYPES = [("manufacturer", r"manufactur|factory|textile|garment unit|auto.?parts|plastic|moulding|packaging unit|printing press|furniture|food processing|workshop|फैक्ट्री|कारखाना|टेक्सटाइल|\bmill\b"),
-          ("restaurant", r"restaurant|tiffin|cloud kitchen|caterer|catering|\bmess\b|cafe|café|hotel|dhaba|bakery chain|रेस्टोरेंट|रेस्तरां|ढाबा|होटल"), ("clinic", r"clinic|dental|dentist|doctor|hospital|diagnostic|physio|lab\b|क्लिनिक|डॉक्टर|अस्पताल"),
+BTYPES = [("manufacturer", r"manufactur|factory|textile|garment unit|auto.?parts|plastic|moulding|packaging unit|printing press|furniture(?! (?:shop|store|showroom))|food processing|workshop|फैक्ट्री|कारखाना|टेक्सटाइल|\bmill\b"),
+          ("restaurant", r"restaurant|tiffin|cloud kitchen|caterer|catering|\bmess\b|cafe|café|hotel|dhaba|bakery chain|रेस्टोरेंट|रेस्तरां|ढाबा|होटल"), ("clinic", r"clinic|dental|dentist|doctor|hospital|diagnostic|physio|\blabs?\b|क्लिनिक|डॉक्टर|अस्पताल"),
           ("pharmacy", r"pharmacy|chemist|medical|दवा|फार्मेसी|मेडिकल"), ("kirana", r"kirana|grocery|general store|किराना|किराणा|परचून"), ("salon", r"salon|parlou?r|barber|सैलून|पार्लर"),
-          ("ca_firm", r"\bca\b|chartered accountant|account(an|ing)|सीए\b"), ("coaching", r"coaching|tuition|institute|pre.?school|कोचिंग|ट्यूशन"), ("office", r"law|lawyer|advocate|real estate|architect|insurance agen|travel agen|\boffice\b|ऑफिस|वकील"),
-          ("retailer", r"retail|showroom|boutique|stationery|hardware store|electronics|optician|mobile repair|sweet shop|bakery|apparel|gym|\bshops?\b|\bstores?\b|dukaan|dukan|दुकान")]
-NEED_RX = [("mobile_line", r"\bsim\b|sim card|mobile (line|plan|connection)|postpaid|सिम|मोबाइल (लाइन|प्लान)"),
+          ("ca_firm", r"\bca\b|chartered accountant|account(an|ing)|सीए\b"), ("coaching", r"coaching|tuition|institute|pre.?school|कोचिंग|ट्यूशन"), ("office", r"\blaw\b|lawyer|advocate|real estate|architect|insurance agen|travel agen|\boffice\b|ऑफिस|वकील"),
+          ("retailer", r"retail|showroom|furniture|boutique|stationery|hardware store|electronics|optician|mobile repair|sweet shop|bakery|apparel|gym|\bshops?\b|\bstores?\b|dukaan|dukan|दुकान")]
+NEED_RX = [("mobile_premium", r"\b150 ?gb\b|roaming|priority care"), ("mobile_line", r"\bsims?\b|sim card|mobile (line|plan|connection)|postpaid|सिम|मोबाइल (लाइन|प्लान)"),
            ("internet_for_upi_pos", r"\bupi\b|यूपीआई|qr code|payment|card machine|swip(e|ing)|कार्ड मशीन|स्वाइप"), ("pos_billing", r"\bpos\b|billing|बिलिंग|inventory|cash counter"),
-           ("cloud_email", r"e-?mail|ईमेल|office suite|google workspace|gmail"), ("storage", r"storage|backup|back up|बैकअप|स्टोरेज"),
-           ("cctv", r"cctv|camera|सीसीटीवी|कैमरा|surveillance"), ("firewall", r"firewall|फ़ायरवॉल"), ("security", r"antivirus|security|ransomware|hack|सुरक्षा|सिक्योरिटी|data safe|डेटा"),
+           ("cloud_email", r"e-?mail|ईमेल|office suite|google workspace|gmail"), ("storage", r"storage|back ?up(?! (?:internet|link|line|connection|router|4g|5g|net))|बैकअप(?! (?:इंटरनेट|लिंक|लाइन))|स्टोरेज|los(?:e|ing) (?:my |our |the |all )?(?:data|files|records|them)"),
+           ("cctv", r"cctv|camera|सीसीटीवी|कैमरा|surveillance"), ("firewall", r"firewall|फ़ायरवॉल"), ("security", r"antivirus|security|ransomware|hack|सुरक्षा|सिक्योरिटी|data safe|डेटा|(?:patient|client|customer) (?:records|data)"),
            ("customer_messaging", r"whats ?app|व्हाट्सएप|catalogue|customer messag"), ("sms", r"\bsms\b|एसएमएस|bulk message"), ("wifi", r"wi-?fi|वाईफाई|guest network"),
            ("website", r"website|वेबसाइट|domain"), ("dedicated_bandwidth", r"leased ?line|dedicated|लीज़्ड|लीज्ड|लीज लाइन|\bsla\b"), ("high_speed", r"\b1 ?g(bps)?\b|gigabit|100 ?mbps dedicated"),
            ("iot", r"\biot\b|machine monitoring|monitor\w*\W+(\w+\W+){0,2}machines?|machines?\W+(\w+\W+){0,2}monitor|sensor|आईओटी|(?<!कार्ड )(?<!बिलिंग )(?<!स्वाइप )मशीन"), ("fleet", r"fleet|gps|vehicle track|truck|गाड़ी|गाड़ियों"), ("telephony", r"\bivr\b|sip\b|telephony|call recording"), ("toll.free", r"toll.?free|1800|टोल"),
-           ("static_ip", r"static ip|स्टैटिक"), ("sdwan", r"sd-?wan|central(ly)? manag|one dashboard"), ("failover", r"failover|backup (internet|link)|फेलओवर"),
+           ("static_ip", r"static ip|स्टैटिक"), ("sdwan", r"sd-?wan|central(ly)? manag|one dashboard"), ("failover", r"failover|back ?up (internet|link|line|connection|router|4g|5g|net)|बैकअप (इंटरनेट|लिंक|लाइन)|फेलओवर"),
            ("uptime", r"uptime|downtime|never go down|keeps? going down|drops?\b|कटता|बंद हो जाता"), ("internet", r"internet|broadband|fibre|fiber|\b5g\b|airfiber|wifi|net connection|इंटरनेट|ब्रॉडबैंड|फाइबर|\bnet\b")]
 HINDI_NUM = {"ek": 1, "do": 2, "teen": 3, "char": 4, "chaar": 4, "paanch": 5, "panch": 5, "chhe": 6, "cheh": 6, "saat": 7, "aath": 8, "nau": 9, "das": 10, "gyarah": 11, "barah": 12, "pandrah": 15, "bees": 20, "pachees": 25, "tees": 30, "pachas": 50, "eleven": 11, "twelve": 12, "thirteen": 13, "fourteen": 14, "fifteen": 15, "sixteen": 16, "eighteen": 18, "twenty": 20, "thirty": 30, "forty": 40, "fifty": 50, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10,
              "एक": 1, "दो": 2, "तीन": 3, "चार": 4, "पांच": 5, "पाँच": 5, "छह": 6, "छः": 6, "सात": 7, "आठ": 8, "नौ": 9, "दस": 10}
@@ -47,7 +86,7 @@ Q = {"business_type": {"en": "What kind of business do you run (for example a ki
      "city": {"en": "Which city are you in?", "hi": "आप किस शहर में हैं?", "hinglish": "Aap kis city mein hain?"},
      "city_tier": {"en": "I don't have that city listed. Is it a metro (Tier 1), a large city (Tier 2), or a smaller town (Tier 3)?", "hi": "यह शहर मेरी सूची में नहीं है। क्या यह मेट्रो (टियर 1), बड़ा शहर (टियर 2) या छोटा शहर (टियर 3) है?", "hinglish": "Yeh city meri list mein nahi hai. Kya yeh metro (Tier 1), bada sheher (Tier 2) ya chhota town (Tier 3) hai?"},
      "has_gstin": {"en": "Does your business have a GSTIN?", "hi": "क्या आपके बिज़नेस का GSTIN है?", "hinglish": "Kya aapke business ka GSTIN hai?"},
-     "needs": {"en": "What's the main thing you need right now: reliable internet, UPI or billing, email, CCTV, customer messaging, or something else?", "hi": "अभी आपको सबसे ज़्यादा क्या चाहिए: भरोसेमंद इंटरनेट, UPI या बिलिंग, ईमेल, सीसीटीवी, ग्राहकों को मैसेज, या कुछ और?", "hinglish": "Abhi sabse zyada kya chahiye: reliable internet, UPI ya billing, email, CCTV, customer messaging, ya kuch aur?"}}
+     "needs": {"en": "What's the main thing you need right now: reliable internet, UPI or billing, email, CCTV, customer messaging, or something else? If you already have internet, tell me that too.", "hi": "अभी आपको सबसे ज़्यादा क्या चाहिए: भरोसेमंद इंटरनेट, UPI या बिलिंग, ईमेल, सीसीटीवी, ग्राहकों को मैसेज, या कुछ और? अगर इंटरनेट पहले से है तो वह भी बताएँ।", "hinglish": "Abhi sabse zyada kya chahiye: reliable internet, UPI ya billing, email, CCTV, customer messaging, ya kuch aur? Agar internet already hai to woh bhi bataiye."}}
 ORDER = ["business_type", "employees", "locations", "city", "city_tier", "has_gstin", "needs"]
 TXT = {
  "welcome": {"en": "Hi! I'm your Accel Business advisor. Tell me about your business and I'll suggest the right plan with one clear monthly price. Hindi or English, both are fine.", "hi": "नमस्ते! मैं आपका Accel Business सलाहकार हूँ।", "hinglish": "Namaste! Main aapka Accel Business advisor hoon."},
@@ -78,9 +117,41 @@ TXT = {
  "faq_setup": {"en": "The one-time setup fee depends on the product, from ₹{lo:,} to ₹{hi:,}. Your quote shows the exact total before you commit.", "hi": "एक बार का सेटअप शुल्क प्रोडक्ट पर निर्भर है, ₹{lo:,} से ₹{hi:,} तक। सही राशि आपके कोटेशन में दिखेगी।", "hinglish": "One-time setup fee product par depend karti hai, ₹{lo:,} se ₹{hi:,} tak. Exact amount quote mein dikhega."},
  "faq_your_terms": {"en": "For your plan: setup ₹{s:,} once, and a {c}-month minimum contract. I don't have early-exit terms, so please check them with a specialist before you sign.", "hi": "आपके प्लान में: सेटअप ₹{s:,} एक बार, और न्यूनतम {c} महीने का अनुबंध। जल्दी बंद करने की शर्तें विशेषज्ञ से पूछ लें।", "hinglish": "Aapke plan mein: setup ₹{s:,} ek baar, aur minimum {c} months ka contract. Early exit ki terms specialist se confirm kar lijiye."},
  "cheapest": {"en": "Our lowest prices start at ₹{a:,} per month for {an} (mobile only) and ₹{b:,} per month for {bn} (internet at your site). The right one depends on your business.", "hi": "सबसे कम कीमत ₹{a:,} प्रति माह {an} (केवल मोबाइल) और ₹{b:,} प्रति माह {bn} (दुकान पर इंटरनेट) से शुरू है। सही प्लान आपके बिज़नेस पर निर्भर है।", "hinglish": "Sabse kam price ₹{a:,} per month {an} (sirf mobile) aur ₹{b:,} per month {bn} (site par internet) se shuru hai. Sahi plan aapke business par depend karta hai."},
+ "hint": {"en": "No problem, a rough answer is fine.", "hi": "कोई बात नहीं, अंदाज़ा भी चलेगा।", "hinglish": "Koi baat nahi, andaaza bhi chalega."},
+ "hint_gst": {"en": "A GSTIN is the 15-character number on a GST certificate. If you don't have one, just say no.", "hi": "GSTIN आपके GST प्रमाणपत्र पर लिखा 15 अंकों का नंबर है। अगर नहीं है तो \"नहीं\" लिख दें।", "hinglish": "GSTIN aapke GST certificate par likha 15-character number hai. Agar nahi hai to \"nahi\" likh dijiye."},
+ "suggest": {"en": "No problem. Most businesses like yours start with reliable internet. Shall I go with that? Reply yes, or tell me what else you need.", "hi": "कोई बात नहीं। आपके जैसे ज़्यादातर बिज़नेस भरोसेमंद इंटरनेट से शुरू करते हैं। क्या वही लें? \"हाँ\" लिखें, या बताएँ कि और क्या चाहिए।", "hinglish": "Koi baat nahi. Aapke jaise zyadatar business reliable internet se shuru karte hain. Wahi le lein? \"Haan\" boliye, ya bataiye aur kya chahiye."},
+ "gst_bad": {"en": "That GSTIN doesn't show as active in the registry, so I can only include products that don't need one.", "hi": "यह GSTIN रजिस्ट्री में सक्रिय नहीं दिख रहा, इसलिए मैं केवल वही प्रोडक्ट जोड़ सकता हूँ जिनमें इसकी ज़रूरत नहीं।", "hinglish": "Yeh GSTIN registry mein active nahi dikh raha, isliye main sirf wahi products add kar sakta hoon jinmein iski zaroorat nahi."},
+ "faq_tax": {"en": "The prices I quote are the catalogue monthly prices. I don't have the tax breakdown, so please confirm with a specialist whether GST is added on the bill.", "hi": "मैं कैटलॉग की मासिक कीमत बताता हूँ। टैक्स का ब्योरा मेरे पास नहीं है, इसलिए बिल पर GST के बारे में विशेषज्ञ से पूछ लें।", "hinglish": "Main catalogue ka monthly price batata hoon. Tax ka breakup mere paas nahi hai, isliye bill par GST ke baare mein specialist se confirm kar lijiye."},
  "more_help": {"en": "Could you tell me what you need it to do? For example, internet, email, CCTV or a mobile line.", "hi": "क्या बता सकते हैं कि आपको क्या चाहिए? जैसे इंटरनेट, ईमेल, सीसीटीवी या मोबाइल लाइन।", "hinglish": "Kya bata sakte hain ki aapko kya chahiye? Jaise internet, email, CCTV ya mobile line."},
 }
 NEEDS_CANON = {"toll.free": "toll_free"}
+# Plain-language reason for each product, keyed by the stated need that pulled it in.
+WHY = {
+ "internet": ("your main internet connection", "आपका मुख्य इंटरनेट कनेक्शन", "aapka main internet connection"),
+ "internet_for_upi_pos": ("keeps UPI and card payments running", "UPI और कार्ड पेमेंट चालू रखता है", "UPI aur card payments chalu rakhta hai"),
+ "uptime": ("keeps you online when the main line is down", "मुख्य लाइन बंद होने पर भी आपको ऑनलाइन रखता है", "main line band hone par bhi online rakhta hai"),
+ "failover": ("keeps you online when the main line is down", "मुख्य लाइन बंद होने पर भी आपको ऑनलाइन रखता है", "main line band hone par bhi online rakhta hai"),
+ "customer_messaging": ("reach customers and share your catalogue on WhatsApp", "WhatsApp पर ग्राहकों तक पहुँचें और कैटलॉग भेजें", "WhatsApp par customers tak pahunchein aur catalogue bhejein"),
+ "sms": ("send alerts and offers by SMS", "SMS से अलर्ट और ऑफ़र भेजें", "SMS se alerts aur offers bhejein"),
+ "cloud_email": ("business email and documents for your team", "आपकी टीम के लिए बिज़नेस ईमेल और दस्तावेज़", "team ke liye business email aur documents"),
+ "storage": ("automatic backup of your files", "आपकी फ़ाइलों का अपने आप बैकअप", "files ka automatic backup"),
+ "security": ("protects PCs and phones from viruses and ransomware", "PC और फ़ोन को वायरस और रैनसमवेयर से बचाता है", "PC aur phones ko virus aur ransomware se bachata hai"),
+ "firewall": ("a managed firewall that protects your network", "आपके नेटवर्क की सुरक्षा के लिए मैनेज्ड फ़ायरवॉल", "network ki safety ke liye managed firewall"),
+ "cctv": ("cameras with cloud recording you can view on your phone", "क्लाउड रिकॉर्डिंग वाले कैमरे, जिन्हें फ़ोन पर देख सकते हैं", "cloud recording wale cameras, jo phone par dekh sakte hain"),
+ "wifi": ("secure Wi-Fi with a separate customer network", "ग्राहकों के लिए अलग नेटवर्क वाला सुरक्षित Wi-Fi", "customers ke liye alag network wala secure Wi-Fi"),
+ "pos_billing": ("billing, inventory and UPI or card acceptance", "बिलिंग, इन्वेंटरी और UPI या कार्ड पेमेंट", "billing, inventory aur UPI ya card payment"),
+ "website": ("a domain and simple website for your business", "आपके बिज़नेस के लिए डोमेन और वेबसाइट", "business ke liye domain aur website"),
+ "dedicated_bandwidth": ("dedicated internet with a service commitment", "सर्विस कमिटमेंट के साथ समर्पित इंटरनेट", "service commitment ke saath dedicated internet"),
+ "high_speed": ("high-speed fibre for heavy use", "ज़्यादा इस्तेमाल के लिए तेज़ फाइबर", "heavy use ke liye fast fibre"),
+ "iot": ("tracks machine uptime and energy use", "मशीन के चलने और बिजली खपत पर नज़र रखता है", "machine uptime aur energy use track karta hai"),
+ "fleet": ("live GPS tracking for your vehicles", "गाड़ियों की लाइव GPS ट्रैकिंग", "gaadiyon ki live GPS tracking"),
+ "telephony": ("business phone lines with IVR and call recording", "IVR और कॉल रिकॉर्डिंग वाली बिज़नेस फ़ोन लाइन", "IVR aur call recording wali business phone lines"),
+ "toll_free": ("an 1800 number for your customers", "ग्राहकों के लिए 1800 नंबर", "customers ke liye 1800 number"),
+ "static_ip": ("a fixed IP for CCTV, servers or remote access", "CCTV, सर्वर या रिमोट एक्सेस के लिए फ़िक्स्ड IP", "CCTV, server ya remote access ke liye fixed IP"),
+ "sdwan": ("manages the links across your sites in one place", "सभी साइटों के लिंक एक जगह से मैनेज करता है", "saari sites ke links ek jagah se manage karta hai"),
+ "mobile_premium": ("a business mobile line with more data and roaming", "ज़्यादा डेटा और रोमिंग वाली बिज़नेस मोबाइल लाइन", "zyada data aur roaming wali business mobile line"),
+ "mobile_line": ("a business mobile line with data and calls", "डेटा और कॉल वाली बिज़नेस मोबाइल लाइन", "data aur calls wali business mobile line"),
+}
 
 
 @dataclass
@@ -92,7 +163,8 @@ class State:
     confusion: int = 0
     handoff: str | None = None
     history: list[tuple[str, str]] = field(default_factory=list)
-    needs_declined: bool = False
+    declined: list[str] = field(default_factory=list)
+    stuck: int = 0
 
 
 def detect_language(text: str, current: str) -> str:
@@ -105,6 +177,8 @@ def detect_language(text: str, current: str) -> str:
 def extract_profile(text: str, p: Profile, awaiting: str | None = None) -> dict:
     """Pure regex extraction. Later statements overwrite earlier ones so users can correct themselves."""
     t, u = text.lower(), {}
+    t = re.sub(r"\b(what|how|why|which|where|when|who|you|we|they|i|can|should|does|did)\s+do\b|\bdo\s+(you|we|i|they)\b", " ", t)  # English "do" is not Hindi for 2
+    t = re.sub(r"(?<![\w])-\s*\d+", " ", t)  # a negative count is not a count
     for name, rx in BTYPES:
         if re.search(rx, t): u["business_type"] = name; break
     def num(s): return HINDI_NUM.get(s, int(s) if s.isdigit() else None)
@@ -122,13 +196,12 @@ def extract_profile(text: str, p: Profile, awaiting: str | None = None) -> dict:
     m = re.search(NUM + r"\s*(?:outlets?|branch(?:es)?|locations?|sites?|stores?|shops?|offices?|clinics?|restaurants?|units?|salons?|pharmac(?:y|ies)|kiranas?|firms?|centres?|centers?|cafes?|plants?|workshops?|hotels?|dukaan|dukan|factories|ब्रांच|लोकेशन|आउटलेट|दुकानें|दुकान|शाखा)", t)
     if m and num(m.group(1)) is not None: u["locations"] = num(m.group(1))
     if re.search(r"single (shop|location|site|store|office)|only one (shop|location|site|branch)|one branch|ek hi|एक ही", t): u["locations"] = 1
-    for c, tier in CITY_TIER.items():
-        if re.search(rf"\b{c}\b", t): u["city"], u["city_tier"] = c.title(), tier; break
-    for hi, c in HI_CITY.items():
-        if hi in text: u["city"], u["city_tier"] = c.title(), CITY_TIER[c]; break
-    if "city" not in u:
-        m = re.search(r"\b(?:in|at|from|near|based in)\s+([A-Za-z]{3,})(?:\s+(?:mein|me|city)\b)?", text)
-        if m and m.group(1).lower() not in {"the", "our", "my", "one", "english", "hindi", "town", "tier", "metro", "india", "business", "this", "that", "all", "each", "small"}:
+    found = _find_city(t, text, awaiting)
+    if found: u["city"], u["city_tier"] = found.title(), CITY_TIER[found]
+    # An unknown word after "in" may be a town, but must not overwrite a city we already have ("drops in evening").
+    if "city" not in u and (p.city is None or re.search(r"\b(moved|shifted|relocat\w*|actually)\b", t)):
+        m = re.search(r"\b(?:in|from|based in)\s+([A-Za-z]{3,})(?:\s+(?:mein|me|city)\b)?", text)
+        if m and m.group(1).lower() not in NOT_PLACE:
             u["city"] = m.group(1).title()
     if "city" not in u:
         for c in UNLISTED:
@@ -138,11 +211,17 @@ def extract_profile(text: str, p: Profile, awaiting: str | None = None) -> dict:
     elif re.search(r"\b(village|gaon|small town|chhota sheher|chhota town)\b|गाँव|गांव|छोटा शहर|कस्बा", t): u["city_tier"] = 3; u.setdefault("city", p.city or "your town")
     elif awaiting == "city_tier" and re.search(r"\bmetro\b|मेट्रो", t): u["city_tier"] = 1
     elif awaiting == "city_tier" and re.search(r"\b(large|big|bada)\b|बड़ा", t): u["city_tier"] = 2
+    elif awaiting == "city_tier" and re.search(r"\b(small|smaller|chhota)\b|छोटा", t): u["city_tier"] = 3
+    elif awaiting == "city_tier" and (m := re.search(r"(?<!\d)([123])(?!\d)", t)): u["city_tier"] = int(m.group(1))
     gst = r"(gst(in| number| no| registration)?|जीएसटी|जीएसटीआईएन)"
-    if re.search(rf"(no|without|not|don'?t have|do not have|dont have|haven'?t|bina|बिना)\W+(\w+\W+){{0,2}}{gst}|{gst}\W+(\w+\W+){{0,2}}(nahi|nahin|नहीं|na\b|not)|\bunregistered\b|not registered", t, re.I):
+    if "[inactive gstin removed]" in t or GST_BAD.search(t):
+        u["has_gstin"] = False
+    elif GST_UNSURE.search(t) or G.FAQ_TAX.search(t) or G.GSTIN_ASK.search(t):
+        pass  # unsure, or a question about tax: it says nothing about registration, so ask instead of guessing
+    elif re.search(rf"(no|without|not|don'?t have|do not have|dont have|haven'?t|bina|बिना)\W+(\w+\W+){{0,2}}{gst}|{gst}\W+(\w+\W+){{0,2}}(nahi|nahin|नहीं|na\b|not)|\bunregistered\b|not registered", t, re.I):
         u["has_gstin"] = False
     elif re.search(gst, t, re.I) or "[gstin removed]" in t: u["has_gstin"] = True
-    m = re.search(NUM + r"\s*(?:sims?|lines?|सिम)", t)
+    m = re.search(NUM + r"\s*(?:business\s+|mobile\s+|postpaid\s+)*(?:sims?|lines?|सिम)", t)
     if m and num(m.group(1)): u["sim_lines"] = num(m.group(1))
     m = re.search(NUM + r"\s*(?:cameras?|cctv|कैमरे|कैमरा)", t)
     if m and num(m.group(1)): u["cameras"] = num(m.group(1))
@@ -153,34 +232,48 @@ def extract_profile(text: str, p: Profile, awaiting: str | None = None) -> dict:
     m = re.search(NUM + r"\s*(?:vehicles?|trucks?|गाड़ियों|गाड़ियाँ)", t)
     if m and num(m.group(1)): u["vehicles"] = num(m.group(1))
     needs = []
+    # Tools they use today describe the current setup; they are not a request.
+    tn = re.sub(r"(?:home (?:wi-?fi|broadband|internet)|(?:mobile )?hotspot|(?:personal |own )?gmail)", " ", t) if re.search(r"\b(on|use|using|have|with|from|through|chalate|chalta)\b", t) else t
+    declined = []
     for n, rx in NEED_RX:
-        if re.search(rx, t): needs.append(NEEDS_CANON.get(n, n))
-    only_sim = re.search(r"\b(only|just|sirf|bas)\b.*\bsim\b|\bsim\b.*\b(only|just|sirf|bas)\b|सिर्फ.*सिम|केवल.*सिम", t)
+        hits = list(re.finditer(rx, tn))
+        if not hits: continue
+        n = NEEDS_CANON.get(n, n)
+        (needs if any(not _negated(tn, h.start(), h.end()) for h in hits) else declined).append(n)
+    if EXISTING.search(t):
+        needs = [n for n in needs if n != "internet"]
+    only_sim = re.search(r"\b(only|just|sirf|bas)\b.*\bsims?\b|\bsims?\b.*\b(only|just|sirf|bas)\b|सिर्फ.*सिम|केवल.*सिम", t)
+    if "mobile_premium" in needs and "mobile_line" in needs: needs.remove("mobile_line")
     if "internet_for_upi_pos" in needs and "internet" in needs: needs.remove("internet")
-    if only_sim: needs = ["mobile_line"]; u["only"] = True
+    if only_sim: needs = ["mobile_premium" if "mobile_premium" in needs else "mobile_line"]; u["only"] = True
     if needs: u["needs"] = needs
+    if declined: u["declined"] = declined
     setup = []
+    if EXISTING.search(t): setup.append("existing_link")
     if re.search(r"business broadband", t): setup.append("business_broadband")
     if re.search(r"(already|existing|current|have|hai).{0,20}leased line", t): setup.append("leased_line")
     if re.search(r"hotspot|हॉटस्पॉट", t): setup.append("hotspot")
     if re.search(r"home broadband|home wifi", t): setup.append("home_broadband")
     if setup: u["current_setup"] = setup
     # Bare answers to the pending question
-    y = re.match(r"\s*((yes|yeah|yep|haan|han|ha|ji)\b|हाँ|हां|जी)", t); n = re.match(r"\s*((no|nope|nah|nahi|nahin)\b|नहीं|नही|ना\b)", t)
-    if awaiting == "has_gstin" and "has_gstin" not in u:
+    y = re.match(r"\s*((yes|yeah|yep|haan|han|ha|ji)\b|हाँ|हां|जी)", t); n = re.match(r"\s*((no|nope|nah|nahi|nahin)\b(?! idea)|नहीं|नही|ना\b)", t)
+    if awaiting == "city_tier":  # that question also asks about GSTIN, so the yes or no can follow the tier
+        y = y or re.search(r"\b(yes|haan|han|ji)\b|हाँ|हां", t); n = n or re.search(r"\b(no|nahi|nahin)\b(?! idea)|नहीं", t)
+    if awaiting in ("has_gstin", "city_tier") and "has_gstin" not in u and not VAGUE.search(t):
         if y: u["has_gstin"] = True
         elif n: u["has_gstin"] = False
     if awaiting in ("employees", "locations") and awaiting not in u:
         m = re.search(NUM, t)
         if m and num(m.group(1)) is not None and not re.search(r"\[", t): u[awaiting] = num(m.group(1))
-    if awaiting == "business_type" and "business_type" not in u and text.strip() and not re.search(r"small business|chhota business|छोटा बिज़नेस|business$", t) and len(text.split()) <= 6:
+    if awaiting == "business_type" and "business_type" not in u and text.strip() and not re.search(r"small business|chhota business|छोटा बिज़नेस|business$", t) and len(text.split()) <= 6 and not VAGUE.search(t) and not ASKING.search(t):
         u["business_type"] = "other"
-    if awaiting == "city" and "city" not in u and text.strip() and len(text.split()) <= 3 and not n:
+    if awaiting == "city" and "city" not in u and text.strip() and len(text.split()) <= 3 and not n and not VAGUE.search(t) and not ASKING.search(t):
         u["city"] = text.strip().title()
+    for k in ("employees", "locations"):
+        if u.get(k) == 0: u[k] = 1  # "0 staff" still means the owner is there
     return u
 
 
-REMOVE = re.compile(r"\b(remove|drop|delete|without|cancel|don'?t want|do not want|no need|hatao|hata do|nahi chahiye|mat)\b|हटाओ|हटा दो|नहीं चाहिए", re.I)
 THANKS = re.compile(r"^\W*(thanks|thank you|thx|ok|okay|cool|great|shukriya|dhanyavaad|धन्यवाद|शुक्रिया)\W*$", re.I)
 
 
@@ -189,6 +282,10 @@ def _merge(s: State, u: dict) -> None:
     for k, v in u.items():
         if k == "needs":
             p.needs = list(v) if u.get("only") else list(dict.fromkeys(p.needs + list(v)))
+            s.declined = [n for n in s.declined if n not in v]
+        elif k == "declined":
+            p.needs = [n for n in p.needs if n not in v]
+            s.declined = list(dict.fromkeys(s.declined + list(v)))
         elif k == "current_setup":
             p.current_setup = list(dict.fromkeys(p.current_setup + list(v)))
         elif k != "only":
@@ -201,16 +298,16 @@ def _merge_llm(s: State, text: str, have: dict) -> None:
     if llm.client() is None: return
     raw = llm.extract(text, NEEDS)
     clean = {}
-    if isinstance(raw.get("employees"), int) and 0 < raw["employees"] < 100000: clean["employees"] = raw["employees"]
-    if isinstance(raw.get("locations"), int) and 0 < raw["locations"] < 10000: clean["locations"] = raw["locations"]
+    for k, top in (("employees", 100000), ("locations", 10000)):
+        if type(raw.get(k)) is int and 0 < raw[k] < top: clean[k] = raw[k]
     if isinstance(raw.get("has_gstin"), bool): clean["has_gstin"] = raw["has_gstin"]
-    if isinstance(raw.get("business_type"), str): clean["business_type"] = raw["business_type"][:30]
+    if raw.get("business_type") in {"kirana", "salon", "pharmacy", "clinic", "ca_firm", "coaching", "restaurant", "retailer", "manufacturer", "office", "other"}: clean["business_type"] = raw["business_type"]
     if isinstance(raw.get("city"), str):
         c = raw["city"].strip().lower()[:40]
         clean["city"] = c.title()
         if c in CITY_TIER: clean["city_tier"] = CITY_TIER[c]
     if raw.get("city_tier") in (1, 2, 3): clean["city_tier"] = raw["city_tier"]
-    if isinstance(raw.get("needs"), list): clean["needs"] = [n for n in raw["needs"] if n in NEEDS]
+    if isinstance(raw.get("needs"), list): clean["needs"] = [n for n in raw["needs"] if n in NEEDS and n not in s.declined]
     _merge(s, {k: v for k, v in clean.items() if k not in have and (k == "needs" or getattr(s.profile, k) is None)})
 
 
@@ -234,8 +331,10 @@ def render_rec(s: State) -> str:
     cat = catalogue()
     if not rec.quote: return _lang_text("none", lang) + _excluded(rec, lang)
     parts = [_lang_text("rec", lang)]
+    col = {"en": 0, "hi": 1, "hinglish": 2}.get(lang, 0)
     for l in rec.quote.lines:
-        parts.append(f"- {l.name}" + (f" × {l.qty}" if l.qty > 1 else "") + f": ₹{l.monthly:,}")
+        why = WHY.get(rec.why.get(l.product_id, ""))
+        parts.append(f"- {l.name}" + (f" × {l.qty}" if l.qty > 1 else "") + f": ₹{l.monthly:,}" + (f" ({why[col]})" if why else ""))
     parts.append(_lang_text("monthly", lang, m=rec.quote.monthly, s=rec.quote.setup, c=rec.quote.contract))
     for a, b in rec.auto_added.items():
         parts.append(_lang_text("dep", lang, a=cat[a].name, b=cat[b].name))
@@ -267,7 +366,8 @@ def _polish(draft: str, s: State, client=None) -> str:
     q, alt = s.rec.quote, s.rec.alt_quote
     for _ in range(2):
         out = llm.rewrite(draft, s.profile.language, client)
-        if out and not G.check_reply(out, q, alt, {e[0] for e in s.rec.excluded}): return out
+        if not out: break  # the service failed: don't make the owner wait for a second try
+        if not G.check_reply(out, q, alt, {e[0] for e in s.rec.excluded}, draft): return out
     return draft
 
 
@@ -282,6 +382,7 @@ def _steer(s: State) -> str:
 
 
 def _do_handoff(s: State, reason: str) -> None:
+    if s.handoff == reason: return  # one lead per reason, however many turns follow
     s.handoff = reason
     from . import db
     db.save_lead(s.profile.model_dump_json(), reason)
@@ -292,10 +393,15 @@ def _join(*a): return " ".join(x for x in a if x)
 
 def turn(s: State, raw: str, llm_client=None) -> str:
     """One advisor turn. Redaction runs before history, regex or LLM see the text."""
+    typed = G.GSTIN.search(raw)
+    rec = registry.lookup_gstin(typed.group().upper())[0] if typed else None
+    bad_gstin = bool(typed) and (rec is None or rec["status"] != "Active")
     text, found = G.redact(raw)
+    if bad_gstin: text = text.replace("[GSTIN removed]", "[inactive GSTIN removed]")
     s.profile.language = detect_language(text, s.profile.language)
     lang = s.profile.language
     reply = _route(s, text, found, lang, llm_client)
+    if bad_gstin: reply = _join(_lang_text("gst_bad", lang), reply)
     s.history += [("user", text), ("assistant", reply)]
     return reply
 
@@ -303,6 +409,8 @@ def turn(s: State, raw: str, llm_client=None) -> str:
 def _faq(s, text, lang) -> str | None:
     """Answers from catalogue or quote figures only."""
     cat = catalogue().values()
+    if G.FAQ_TAX.search(text): return _lang_text("faq_tax", lang)
+    if G.GSTIN_ASK.search(text): return _lang_text("hint_gst", lang)
     if G.FAQ_CONTRACT.search(text) or G.FAQ_SETUP.search(text):
         if s.rec and s.rec.quote:
             return _lang_text("faq_your_terms", lang, s=s.rec.quote.setup, c=s.rec.quote.contract)
@@ -348,7 +456,7 @@ def _route(s, text, found, lang, llm_client):
         if near:
             pr = catalogue()[near]
             t += _lang_text("near", lang, name=pr.name, desc=pr.description.lower())
-        _merge(s, {k: v for k, v in u.items() if k != "needs"})
+        _merge(s, {k: v for k, v in u.items() if k != "needs" or s.profile.business_type == "manufacturer" or u.get("business_type") == "manufacturer"})  # factory needs go in the hand-off summary
         if s.profile.business_type == "manufacturer":  # custom need at a factory goes to a person
             _do_handoff(s, "manufacturer_custom")
             return _join(t, _lang_text("custom", lang))
@@ -369,13 +477,12 @@ def _route(s, text, found, lang, llm_client):
         return _lang_text("alt", lang, names=", ".join(cat[k].name for k in s.rec.alternative), m=s.rec.alt_quote.monthly)
     if s.rec and THANKS.search(text) and not u:
         return _lang_text("next", lang)
-    if REMOVE.search(text) and u.get("needs") and s.profile.needs:
-        s.profile.needs = [n for n in s.profile.needs if n not in u["needs"]]
-        u = {k: v for k, v in u.items() if k != "needs"}
+    if s.awaiting == "needs_confirm" and not u.get("needs") and re.match(r"\s*((yes|yeah|ok|okay|haan|han|ji|theek)\b|हाँ|हां|जी|ठीक)", text.lower()):
+        u["needs"] = ["internet_for_upi_pos" if s.profile.business_type in MICRO else "internet"]
     _merge(s, u)
     # Save free-tier quota: skip when nothing is missing, or for short answers like "6" or "Delhi".
     if next_question(s) and len(text.split()) > 3: _merge_llm(s, text, u)
-    if u.get("only") or (s.profile.needs == ["mobile_line"]):
+    if u.get("only") or (s.profile.needs and set(s.profile.needs) <= {"mobile_line", "mobile_premium"}):
         # A mobile-only request needs no site count; a staff count of 1 satisfies every P07 rule.
         s.profile.locations = s.profile.locations or 1
         s.profile.employees = s.profile.employees or 1
@@ -383,10 +490,23 @@ def _route(s, text, found, lang, llm_client):
     # A town we can't serve ends the discovery: further questions would waste the owner's time.
     f = None if s.profile.city_tier == 3 else next_question(s)
     if f:
+        if s.awaiting in (f, f + "_confirm") and not u:  # the answer didn't move us on: clarify once, then a person helps
+            s.stuck += 1
+            if s.stuck >= 2:
+                _do_handoff(s, "repeated_confusion")
+                return _lang_text("handoff", lang)
+            if f == "needs":
+                s.awaiting = "needs_confirm"
+                return _lang_text("suggest", lang)
+            return _join(_lang_text("hint_gst" if f == "has_gstin" else "hint", lang), Q[f][lang])
+        s.stuck = 0
         s.awaiting = f; s.rec = None
-        if f not in s.asked: s.asked.append(f)
+        if f == "city_tier" and s.profile.has_gstin is None:  # one turn for both, so an unlisted city stays within six questions
+            s.asked.append("city_tier+has_gstin")
+            return _join(Q[f][lang], Q["has_gstin"][lang])
+        if f not in s.asked and not (f == "has_gstin" and "city_tier+has_gstin" in s.asked): s.asked.append(f)
         return Q[f][lang]
-    s.awaiting = None
+    s.awaiting = None; s.stuck = 0
     s.rec = recommend(s.profile)
     if s.rec.handoff: _do_handoff(s, s.rec.handoff)
     draft = render_rec(s)

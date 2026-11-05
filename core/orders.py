@@ -50,6 +50,11 @@ def advance(oid: int, to: str | None = None) -> str:
     return nxt
 
 
+def can_advance(o: dict, kyc_verdict: str | None) -> bool:
+    """Nothing moves past "Quote accepted" without a verified KYC, including the demo control."""
+    return kyc_verdict == "verified" and o["stage_index"] < len(STAGES) - 1
+
+
 def reschedule(oid: int, new: date) -> None:
     o = get(oid)
     if o["stage_index"] < 3 or o["stage_index"] >= 5:

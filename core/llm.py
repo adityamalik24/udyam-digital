@@ -17,7 +17,7 @@ def client():
     if not key: return None
     if _client is None:
         from google import genai
-        _client = genai.Client(api_key=key, http_options={"timeout": 20000})
+        _client = genai.Client(api_key=key, http_options={"timeout": 15000})
     return _client
 
 
@@ -32,7 +32,9 @@ def _call(system: str, user: str, c=None) -> str | None:
             return r.text  # None when the response was blocked
         except Exception as e:
             last_error = type(e).__name__
-            if getattr(e, "code", None) not in (429, 503): return None
+            if getattr(e, "code", None) not in (429, 503):
+                _paused_until = time.time() + 30  # a hung or failing service must not stall every turn
+                return None
     _paused_until = time.time() + 30  # every model is limited: stop trying for a while
     return None
 

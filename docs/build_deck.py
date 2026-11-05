@@ -114,7 +114,7 @@ s = slide("A working journey where code, not the LLM, decides")
 for i,(h,b) in enumerate([("Advisor","English, Hindi, Hinglish. At most 6 questions, no upsell"),("Quote","One price, add-on toggles, dependencies added with a note"),("Smart KYC","Consent first. OCR, GSTIN checksum and mock registry checks"),("Tracker","7 stages with timestamps, reschedule, consent withdrawal")]):
     card(s, .5+i*2.23, .9, 2.1, 1.55, h, b, 16, 12)
 text(s, .5, 2.65, 8.8, 2, ["The LLM only fills profile gaps and rewords replies. Any product, amount or promise that isn't from the rules engine is discarded.",
- "Tested: 37 of 37 own advisor scenarios pass. All 12 KYC applicants match our manual review of the images and registries: 6 verified, 4 needs review, 2 rejected.",
+ "Tested: 139 of 139 advisor scenarios we wrote pass (not the judges' set). All 12 KYC applicants match our manual review of the images and registries: 5 verified, 5 needs review, 2 rejected.",
  "Identifiers are stripped from chat before storage. Document images stay in memory and never reach the LLM."], 13)
 
 # 7 Signals
@@ -146,7 +146,7 @@ table(s, .5, .9, 8.8, [["Risk","Mitigation"],
  ["Advisor gives a wrong plan or price","Rules engine decides; replies are validated; regression scenarios run before release"],
  ["KYC wrongly rejects a real business","Rejection needs hard evidence; anything uncertain goes to a person"],
  ["Personal data exposure (DPDP Act)","Per-purpose consent, masked fields, images not retained, withdrawal in tracker"],
- ["Install capacity limits the gains","98 drops are install delays; tracker exposes them but doesn't fix capacity. City data needs checking"],
+ ["Install capacity limits the gains","98 drops are install delays; tracker doesn't fix capacity. Indore and Mysuru take 8+ days from KYC to activation vs 4.8 overall (under 10 customers each, so verify)"],
  ["Channel conflict with partners","Partners keep attribution and install work; specialists get hand-offs"]], [3,5.8], 12, .42)
 text(s, .5, 3.65, 8.8, .9, "Ask: approve a pilot in professional offices, Tier 1 cities, with real registry access, then decide on Phase 2 from measured recovery.", 14, RED, True)
 

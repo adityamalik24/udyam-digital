@@ -7,7 +7,7 @@ from core.propensity import score_leads
 c.setup("Partner queue")
 st.subheader("Partner queue")
 st.caption("For specialists and channel partners. Read-only demo view, with no contact details or identifiers shown.")
-REASON = {"multi_site": "Several locations", "manufacturer_custom": "Factory with custom needs", "frustration": "Asked for a person", "repeated_confusion": "Repeatedly confused", "tier_not_served": "Town not served yet", "no_eligible": "No eligible plan"}
+REASON = {"multi_site": "Several locations", "manufacturer_custom": "Factory with custom needs", "frustration": "Asked for a person", "repeated_confusion": "Repeatedly confused", "tier_not_served": "Town not served yet", "no_eligible": "No eligible plan", "large_account": "Larger than a small business"}
 st.markdown("**Advisor hand-offs**")
 rows = []
 for l in db.list_leads():

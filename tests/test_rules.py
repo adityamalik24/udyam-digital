@@ -1,7 +1,7 @@
 import sys, pathlib; sys.path.insert(0, str(pathlib.Path(__file__).parents[1]))
 import pytest
 from core.catalogue import catalogue
-from core.rules import Profile, recommend, eligible, enforce_dependencies, apply_addons
+from core.rules import Profile, recommend, eligible, enforce_dependencies, apply_addons, NEEDS
 
 def P(**k):
     d = dict(business_type="kirana", employees=2, locations=1, city="Patna", city_tier=2, has_gstin=False, needs=["internet_for_upi_pos"])
@@ -68,3 +68,58 @@ def test_every_recommendation_respects_rules(pid):
         for k in items:
             assert eligible(k, prof)[0]
             assert not cat[k].requires_one_of or set(cat[k].requires_one_of) & set(items)
+
+
+def _audit_profiles():
+    import itertools
+    needs = [[n] for n in NEEDS] + [["internet", n] for n in NEEDS] + [["cctv", "customer_messaging"], ["cloud_email", "security", "failover"], ["dedicated_bandwidth", "iot"]]
+    for bt, tier, staff, sites, gst, need in itertools.product(["kirana", "clinic", "restaurant", "manufacturer"], [1, 2], [1, 3, 5, 10, 25, 40], [1, 2, 3, 5], [True, False], needs):
+        yield Profile(business_type=bt, city="X", city_tier=tier, employees=staff, locations=sites, has_gstin=gst, needs=need)
+
+
+def test_every_bundle_obeys_the_catalogue():
+    from core.catalogue import catalogue
+    from core.pricing import price
+    cat = catalogue()
+    for prof in _audit_profiles():
+        r = recommend(prof)
+        for pid in r.items:
+            assert eligible(pid, prof)[0], (prof, pid)
+            req = cat[pid].requires_one_of
+            assert not req or set(req) & set(r.items), (prof, pid)
+        if r.items:
+            assert r.quote.monthly == sum(cat[p].monthly * q for p, q in r.items.items())
+        if r.alternative:
+            assert r.alt_quote.monthly < r.quote.monthly, (prof, r.items, r.alternative)
+            for pid in r.alternative:
+                assert eligible(pid, prof)[0]
+
+
+def test_every_template_reply_passes_the_guardrail():
+    from core.advisor import State, render_rec
+    from core.guardrails import check_reply
+    for prof in _audit_profiles():
+        for lang in ("en", "hi", "hinglish"):
+            prof.language = lang
+            r = recommend(prof)
+            if not r.quote: continue
+            s = State(profile=prof, rec=r)
+            assert not check_reply(render_rec(s), r.quote, r.alt_quote, {e[0] for e in r.excluded}), (prof, r.items)
+
+
+def test_fibre_only_addon_replaces_airfiber():
+    prof = Profile(business_type="kirana", city_tier=1, employees=3, locations=1, has_gstin=False, needs=["internet"])
+    res = apply_addons(prof, {"P04": 1}, {"P09"})
+    assert "P04" not in res["items"] and {"P01", "P09"} <= set(res["items"])
+    assert apply_addons(prof, {"P04": 1}, {"P23"})["items"].keys() == {"P04", "P23"}
+
+
+def test_every_business_type_in_the_data_is_recognised():
+    import pandas as pd
+    from core.advisor import extract_profile
+    from core.catalogue import DATA
+    d = pd.read_csv(DATA / "smb_leads.csv")[["business_type", "segment"]].drop_duplicates()
+    for bt, seg in d.itertuples(index=False):
+        got = extract_profile(f"I run a {bt}", Profile()).get("business_type")
+        assert got, bt
+        assert (got == "manufacturer") == (seg == "Small manufacturers"), (bt, got)

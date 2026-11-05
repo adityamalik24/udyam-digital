@@ -30,6 +30,10 @@ Stretch goal: `Partner queue` lists advisor hand-offs and ranks leads lost to ou
 | Quote valid 15 days | Our assumption; the data doesn't specify one |
 | Udyam date and activity are not checked | They disagree with the registry for nearly all applicants including clean ones, so they look like generator noise |
 | Missing Udyam certificate = needs_review | The brief lists it as a required KYC document |
+| "Clinic wants email" adds a link and Endpoint Security | Our scenario 2. Goes beyond rule 4 (stated needs only): all 138 professional-office customers with email also bought a link, 67 bought security. Saying "we already have internet" removes the link |
+| CCTV and similar still add a link when the owner has one | The catalogue requires a listed product in the same bundle, and we can't confirm a link from another provider |
+| A typed GSTIN is looked up, then discarded | Only an active registry record counts as having a GSTIN; the number is never stored or repeated |
+| Tiers for cities outside the data | The leads cover 22 cities. Other tier 2 and 3 lists are our assumption; unlisted cities are asked, not guessed |
 
 ## KYC results (our manual review, not the judges' key)
 Verified: K02 (rotated scan), K03, K08, K09, K12. Needs review: K04 (blurred GST), K05 (no Udyam certificate), K07 (legal name "Shri" vs registry "Neelgiri"), K10 (signatory ID differs from the contact on the application; the other 11 applicants match), K11 (bill 257 days old). Rejected: K01 (GSTIN cancelled), K06 (certificate prints 8189, registry 5189).

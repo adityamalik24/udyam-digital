@@ -33,8 +33,11 @@ c1, c2, c3 = st.columns(3)
 c1.metric(t["setup"], f"₹{q.setup:,}"); c2.metric(t["contract"], f"{q.contract} {t['months']}"); c3.metric(t["valid"], q.valid_until.strftime("%d %b %Y"))
 for l in q.lines:
     st.markdown(f"**{l.name}**" + (f" × {l.qty}" if l.qty > 1 else "") + f" · ₹{l.monthly:,}  \n{cat[l.product_id].description}")
-if st.button(t["accept"], type="primary", use_container_width=True):
-    st.session_state.order_id = orders.create(c.USER, res["items"], q)
-    st.success(t["accepted"])
+already = st.session_state.get("accepted_items") == res["items"]  # a second tap must not create a second order
+if st.button(t["accept"], type="primary", use_container_width=True, disabled=already):
+    st.session_state.order_id = orders.create(c.user(), res["items"], q)
+    st.session_state.accepted_items = dict(res["items"])
+    already = True
+if already: st.success(t["accepted"])
 if st.session_state.get("order_id"):
     c.link("pages/3_Consent.py", label=t["consent"], icon="✅")
