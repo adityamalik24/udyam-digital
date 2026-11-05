@@ -66,7 +66,7 @@ BTYPES = [("manufacturer", r"manufactur|factory|textile|garment unit|auto.?parts
 NEED_RX = [("mobile_premium", r"\b150 ?gb\b|roaming|priority care"), ("mobile_line", r"\bsims?\b|sim card|mobile (line|plan|connection)|postpaid|सिम|मोबाइल (लाइन|प्लान)"),
            ("internet_for_upi_pos", r"\bupi\b|यूपीआई|qr code|payment|card machine|swip(e|ing)|कार्ड मशीन|स्वाइप"), ("pos_billing", r"\bpos\b|billing|बिलिंग|inventory|cash counter"),
            ("cloud_email", r"e-?mail|ईमेल|office suite|google workspace|gmail"), ("storage", r"storage|back ?up(?! (?:internet|link|line|connection|router|4g|5g|net))|बैकअप(?! (?:इंटरनेट|लिंक|लाइन))|स्टोरेज|los(?:e|ing) (?:my |our |the |all )?(?:data|files|records|them)"),
-           ("cctv", r"cctv|camera|सीसीटीवी|कैमरा|surveillance"), ("firewall", r"firewall|फ़ायरवॉल"), ("security", r"antivirus|security|ransomware|hack|सुरक्षा|सिक्योरिटी|data safe|डेटा|(?:patient|client|customer) (?:records|data)"),
+           ("cctv", r"cctv|camera|सीसीटीवी|कैमरा|surveillance"), ("firewall", r"firewall|फ़ायरवॉल"), ("security", r"antivirus|security|ransomware|hack|सुरक्षा|सिक्योरिटी|data safe|डेटा|(?:patient|client|customer)s?'?s? (?:records|data)"),
            ("customer_messaging", r"whats ?app|व्हाट्सएप|catalogue|customer messag"), ("sms", r"\bsms\b|एसएमएस|bulk message"), ("wifi", r"wi-?fi|वाईफाई|guest network"),
            ("website", r"website|वेबसाइट|domain"), ("dedicated_bandwidth", r"leased ?line|dedicated|लीज़्ड|लीज्ड|लीज लाइन|\bsla\b"), ("high_speed", r"\b1 ?g(bps)?\b|gigabit|100 ?mbps dedicated"),
            ("iot", r"\biot\b|machine monitoring|monitor\w*\W+(\w+\W+){0,2}machines?|machines?\W+(\w+\W+){0,2}monitor|sensor|आईओटी|(?<!कार्ड )(?<!बिलिंग )(?<!स्वाइप )मशीन"), ("fleet", r"fleet|gps|vehicle track|truck|गाड़ी|गाड़ियों"), ("telephony", r"\bivr\b|sip\b|telephony|call recording"), ("toll.free", r"toll.?free|1800|टोल"),
@@ -277,7 +277,7 @@ def extract_profile(text: str, p: Profile, awaiting: str | None = None) -> dict:
     if awaiting in ("has_gstin", "city_tier") and "has_gstin" not in u and not VAGUE.search(t):
         if y: u["has_gstin"] = True
         elif n: u["has_gstin"] = False
-    if awaiting in ("employees", "locations") and awaiting not in u:
+    if awaiting in ("employees", "locations") and not {"employees", "locations"} & set(u) and len(text.split()) <= 4:  # in a longer sentence the first number may be only part of the answer
         m = re.search(NUM, t)
         if m and num(m.group(1)) is not None and not re.search(r"\[", t): u[awaiting] = num(m.group(1))
     if awaiting == "business_type" and "business_type" not in u and text.strip() and not re.search(r"small business|chhota business|छोटा बिज़नेस|business$", t) and len(text.split()) <= 6 and not VAGUE.search(t) and not ASKING.search(t):
@@ -311,7 +311,7 @@ def _merge(s: State, u: dict) -> None:
 def _merge_llm(s: State, text: str, have: dict) -> None:
     """LLM fills only gaps the regex left. Output is validated like any other untrusted input."""
     if llm.client() is None: return
-    raw = llm.extract(text, NEEDS)
+    raw = llm.extract(f"[Question just asked: {s.awaiting}] {text}" if s.awaiting else text, NEEDS)
     clean = {}
     for k, top in (("employees", 100000), ("locations", 10000)):
         if type(raw.get(k)) is int and 0 < raw[k] < top: clean[k] = raw[k]
@@ -391,8 +391,19 @@ def _polish(draft: str, s: State, client=None) -> str:
     for _ in range(2):
         out = llm.rewrite(draft, s.profile.language, client)
         if not out: break  # the service failed: don't make the owner wait for a second try
-        if not G.check_reply(out, q, alt, {e[0] for e in s.rec.excluded}, draft): return out
+        if not G.check_reply(out, q, alt, {e[0] for e in s.rec.excluded}, draft) and not G.dropped_facts(out, draft, alt, [catalogue()[e[0]].name for e in s.rec.excluded]): return out
     return draft
+
+
+def _converse(s: State, text: str, lang: str, client=None) -> str | None:
+    """Natural reply to a message nothing else understood. Decides nothing; anything unsafe is dropped."""
+    if (client is None and llm.client() is None) or VAGUE.search(text) or len(text.split()) < 3: return None
+    p, q = s.profile, s.rec.quote if s.rec else None
+    facts = f"business type {p.business_type or 'unknown'}, city {p.city or 'unknown'}."
+    names = tuple(l.name for l in q.lines) if q else ()
+    if q: facts += " Their plan: " + "; ".join(f"{l.name} ({catalogue()[l.product_id].description})" for l in q.lines)
+    out = (llm.converse(text, lang, facts, client) or "").strip()
+    return out if out and not G.check_chat(out, names) else None
 
 
 def _steer(s: State) -> str:
@@ -475,7 +486,7 @@ def _route(s, text, found, lang, llm_client):
     if G.FRUSTRATED.search(text):
         _do_handoff(s, "frustration")
         return _lang_text("handoff", lang)
-    if G.DISCOUNT.search(text) and not re.search(r"\d+\s*(staff|employee|people|log\b)", text, re.I):
+    if G.DISCOUNT.search(text) and not G.PROMISE_ASK.search(text) and not re.search(r"\d+\s*(staff|employee|people|log\b)", text, re.I):
         return _join(_lang_text("discount", lang), _steer(s))
     if G.OFF_TOPIC.search(text):
         return _join(_lang_text("off_topic", lang), _steer(s))
@@ -524,7 +535,9 @@ def _route(s, text, found, lang, llm_client):
         u["needs"] = ["internet_for_upi_pos" if s.profile.business_type in MICRO else "internet"]
     _merge(s, u)
     # Save free-tier quota: skip when nothing is missing, or for short answers like "6" or "Delhi".
+    before = s.profile.model_dump()
     if next_question(s) and len(text.split()) > 3: _merge_llm(s, text, u)
+    moved = bool(u) or s.profile.model_dump() != before
     if u.get("only") or (s.profile.needs and set(s.profile.needs) <= {"mobile_line", "mobile_premium"}):
         # A mobile-only request needs no site count; a staff count of 1 satisfies every P07 rule.
         s.profile.locations = s.profile.locations or 1
@@ -533,8 +546,16 @@ def _route(s, text, found, lang, llm_client):
     # A town we can't serve ends the discovery: further questions would waste the owner's time.
     f = None if s.profile.city_tier == 3 else next_question(s)
     if f:
-        if s.awaiting in (f, f + "_confirm") and not u:  # the answer didn't move us on: clarify once, then a person helps
+        if not moved and s.awaiting is None and (said := _converse(s, text, lang, llm_client)):
+            s.awaiting = f; s.rec = None
+            if f not in s.asked: s.asked.append(f)
+            return _join(said, _question(s, f, lang))
+        if s.awaiting in (f, f + "_confirm") and not moved:  # the answer didn't move us on: clarify once, then a person helps
             s.stuck += 1
+            # With the LLM up, side remarks get a real reply, and a person steps in a turn later.
+            if s.stuck < 3 and (said := _converse(s, text, lang, llm_client)):
+                s.awaiting = f
+                return _join(said, _question(s, f, lang))
             if s.stuck >= 2:
                 _do_handoff(s, "repeated_confusion")
                 return _lang_text("handoff", lang)
@@ -549,6 +570,8 @@ def _route(s, text, found, lang, llm_client):
             return _join(Q[f][lang], _question(s, "has_gstin", lang))
         if f not in s.asked and not (f == "has_gstin" and "city_tier+has_gstin" in s.asked): s.asked.append(f)
         return _question(s, f, lang)
+    if s.rec and s.rec.quote and not moved and (said := _converse(s, text, lang, llm_client)):
+        return said  # a remark about the plan: answer it and keep the plan
     s.awaiting = None; s.stuck = 0
     s.rec = recommend(s.profile)
     if s.rec.handoff: _do_handoff(s, s.rec.handoff)

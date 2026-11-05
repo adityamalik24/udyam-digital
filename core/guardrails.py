@@ -78,7 +78,7 @@ def out_of_catalogue(text: str):
 
 AMOUNT = re.compile(r"(?:₹|\brs\.?|\binr|रु\.?)\s*([\d,]+)|(\d[\d,]{2,})\s*(?:rupees?|रुपये|rupaye|per month|a month|/month|/mo\b|प्रति माह)", re.I)
 NUMBER = re.compile(r"\d[\d,]*")
-BAD_PROMISE = re.compile(r"guarantee|free upgrade|install(ed)? (by|tomorrow|today)|discount|गारंटी|मुफ़्त|मुफ्त|\bfree\b", re.I)
+BAD_PROMISE = re.compile(r"budget.friendly|affordable|best (price|plan|deal)|guarantee|free upgrade|install(ed)? (by|tomorrow|today)|discount|गारंटी|मुफ़्त|मुफ्त|\bfree\b", re.I)
 CODE = re.compile(r"\bP\d{2}\b")
 
 
@@ -89,6 +89,34 @@ def allowed_amounts(q: Quote | None, alt: Quote | None = None) -> set[int]:
             out |= {x.monthly, x.setup}
             for l in x.lines: out |= {l.unit_price, l.monthly, l.setup}
     return out
+
+
+CHAT_BANNED = re.compile(r"₹|\brs\.?\b|\binr\b|price|cost|cheap|discount|offer|free\b|guarantee|promise|tomorrow|today|\bweek|\bmonth|\bdays?\b|install|available|recommend|suggest|"
+                         r"कीमत|दाम|छूट|मुफ़्त|मुफ्त|गारंटी|वादा|कल\b|आज\b|हफ़्ते|महीने|दिन\b|सुझा|sasta|keemat|daam|chhoot|muft|mahine|hafte|\bdin\b|\bkal\b|\baaj\b", re.I)
+CHAT_PRODUCT_WORDS = re.compile(r"fibre|fiber|broadband|leased|airfiber|\b5g\b|\b4g\b|postpaid|\bsim\b|cctv|firewall|sd-?wan|whatsapp|फाइबर|ब्रॉडबैंड|सिम|सीसीटीवी|व्हाट्सएप", re.I)
+
+
+def check_chat(reply: str, allowed_names: tuple[str, ...] = ()) -> list[str]:
+    """Free-form small talk from the LLM may decide and promise nothing. Empty list means safe to show."""
+    probs, text = [], reply
+    for n in allowed_names: text = re.sub(re.escape(n), " ", text, flags=re.I)
+    if len(reply.split()) > 45: probs.append("too long")
+    if re.search(r"\d|[०-९]", text): probs.append("number")
+    if CHAT_BANNED.search(text): probs.append("commercial wording")
+    if CODE.search(reply): probs.append("internal code")
+    low = text.lower()
+    if any(p.name.lower() in low for p in catalogue().values()): probs.append("product not in plan")
+    if not allowed_names and CHAT_PRODUCT_WORDS.search(text): probs.append("product before a plan")
+    if redact(reply)[1] or "[contact removed]" in redact(reply)[0]: probs.append("identifier")
+    return probs
+
+
+def dropped_facts(reply: str, draft: str, alt: Quote | None, excluded_names: list[str]) -> list[str]:
+    """A rewrite must keep the cheaper option and every exclusion the checked draft showed."""
+    probs = []
+    if alt and f"{alt.monthly:,}" in draft and f"{alt.monthly:,}" not in reply and str(alt.monthly) not in reply: probs.append("cheaper option dropped")
+    probs += [f"exclusion {n} dropped" for n in excluded_names if n in draft and n.lower() not in reply.lower()]
+    return probs
 
 
 def check_reply(reply: str, q: Quote | None, alt: Quote | None = None, excluded: set[str] = frozenset(), draft: str | None = None) -> list[str]:

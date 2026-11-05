@@ -45,7 +45,7 @@ def test_bad_llm_regenerates_then_falls_back(monkeypatch):
 
 def test_good_llm_used():
     s0 = advisor.State(); advisor.turn(s0, MSG); q = s0.rec.quote
-    good = f"Biz Fibre 100, Cloud Email & Office Suite and Endpoint Security: ₹{q.monthly:,} a month."
+    good = f"Biz Fibre 100, Cloud Email & Office Suite and Endpoint Security: ₹{q.monthly:,} a month. Cheaper option at ₹{s0.rec.alt_quote.monthly:,}."
     s = advisor.State(); assert advisor.turn(s, MSG, llm_client=Fake([good])) == good
 
 def test_llm_never_receives_pii(monkeypatch):
@@ -144,3 +144,68 @@ def test_callback_consent_delete_purge_and_note_redaction():
     callback.save("old", "", "9876543210", None, "Any time", "", "{}", "x", "en")
     callback.purge(datetime.now(timezone.utc) + timedelta(days=91))
     assert not callback.has_request("old")
+
+
+class _Fake:
+    """Stands in for Gemini: replies with fixed text."""
+    def __init__(self, text): self.text = text
+    @property
+    def models(self): return self
+    def generate_content(self, **k): return NS(text=self.text)
+
+
+def _chat(msgs, reply):
+    llm._paused_until = 0.0
+    s, out, fake = advisor.State(), "", _Fake(reply)
+    for m in msgs: out = advisor.turn(s, m, fake)
+    return s, out
+
+
+def test_side_remark_gets_a_reply_then_the_question():
+    s, out = _chat(["clinic in Delhi, need internet", "my cousin set this up for me"], "That's kind of your cousin.")
+    assert out.startswith("That's kind of your cousin.") and "How many people" in out and s.stuck == 1
+
+
+def test_first_message_side_remark_gets_a_reply():
+    _, out = _chat(["my son usually handles all this"], "Happy to help you directly.")
+    assert out.startswith("Happy to help") and "kind of business" in out
+
+
+def test_side_remarks_still_end_with_a_person():
+    s, out = _chat(["clinic in Delhi, need internet", "my cousin set this up", "he is very busy these days", "anyway he went to Dubai"], "I understand.")
+    assert s.handoff == "repeated_confusion" and "specialist" in out
+
+
+def test_remark_after_a_plan_keeps_the_plan():
+    s, out = _chat(["Clinic in Delhi, 6 staff, one location, have GSTIN, want email"], "x")
+    fake = _Fake("Biz Fibre 100 suits a clinic like yours, a specialist can confirm the details.")
+    before = s.rec.items
+    out = advisor.turn(s, "my brother thinks this looks okay", fake)
+    assert out.startswith("Biz Fibre 100 suits") and s.rec.items == before
+
+
+@pytest.mark.parametrize("bad", ["Sure, ₹500 works for you.", "Great, it will be ready tomorrow.", "We can give a discount.", "You should take Cloud CCTV.", "Try our fibre plan.",
+                                 "P01 is good.", "I recommend upgrading.", "आपको मुफ़्त मिलेगा।", "Call 9876543210.", "word " * 50])
+def test_unsafe_llm_small_talk_is_dropped(bad):
+    _, out = _chat(["clinic in Delhi, need internet", "my cousin set this up for me"], bad)
+    assert bad.strip() not in out and "How many people" in out
+
+
+def test_small_talk_failure_falls_back_to_the_script():
+    class Down:
+        @property
+        def models(self): return self
+        def generate_content(self, **k): raise TimeoutError("down")
+    llm._paused_until = 0.0
+    s = advisor.State()
+    advisor.turn(s, "clinic in Delhi, need internet")
+    assert "How many people" in advisor.turn(s, "my cousin set this up for me", Down())
+    llm._paused_until = 0.0; llm.last_error = None
+
+
+def test_rewrite_must_keep_cheaper_option_and_exclusions():
+    alt = price({"P04": 1})
+    draft = "Biz Fibre 100. Cheaper option: Biz 5G AirFiber 100 at ₹999 per month. Not included: Static IP (reason)."
+    assert G.dropped_facts("Biz Fibre 100 only.", draft, alt, ["Static IP"]) == ["cheaper option dropped", "exclusion Static IP dropped"]
+    assert not G.dropped_facts("Fibre, or AirFiber at ₹999. Static IP isn't included.", draft, alt, ["Static IP"])
+    assert G.check_reply("Biz Fibre 100 is a budget-friendly ₹1,099", price({"P01": 1}))

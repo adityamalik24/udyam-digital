@@ -103,3 +103,8 @@
 - {id: g8, name: "Hindi question gives the reason", turns: ["मेरी दुकान है", "व्हाट्सएप चाहिए", "पुणे"], reply_has: "GSTIN", reply_has2: "इसके बिना नहीं", lang: hi}
 - {id: c1, name: "Phone in chat is removed and points to the form", turns: ["this is useless", "call me on 9876543210"], reply_has: "Talk to a person", reply_lacks: "9876543210", history_lacks: "9876543210"}
 - {id: c2, name: "Email address in chat is removed, not read as an email need", turns: ["clinic", "reach me at owner@example.com"], reply_has: "Talk to a person", history_lacks: "owner@example.com", no_need: [cloud_email]}
+- {id: f1, name: "First number in a long sentence is not the staff count", turns: ["kirana in Pune, need internet", "it's me, my wife and our two boys"], profile: {employees: null}}
+- {id: f2, name: "Short number answer still works", turns: ["kirana in Pune, need internet", "around 4 people"], profile: {employees: 4}}
+- {id: f3, name: "Free install by tomorrow is a promise question", turns: ["Clinic in Delhi, 6 staff, one location, want email", "Can you install it by tomorrow for free?"], reply_has: "can't promise", reply_lacks: "discount"}
+- {id: f4, name: "One shop answers locations, not staff", turns: ["kirana in Pune, need internet", "one shop"], reply_has: "How many people", profile: {locations: 1, employees: null}}
+- {id: f5, name: "Possessive patient records means security", turns: ["dental clinic in Mumbai, our patients' records worry me"], need: [security]}
