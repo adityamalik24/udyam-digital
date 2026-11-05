@@ -121,3 +121,26 @@ def test_llm_cannot_add_a_declined_need_or_bad_type(monkeypatch):
     monkeypatch.setattr(llm, "extract", lambda t, n: {"needs": ["cctv", "storage"], "business_type": "<script>", "employees": True})
     advisor._merge_llm(s, "text", {})
     assert s.profile.needs == ["storage"] and s.profile.business_type is None and s.profile.employees is None
+
+
+def test_callback_validation():
+    from core.callback import clean
+    assert clean("+91 98765-43210", "") == ("9876543210", None, None)
+    assert clean("", "a@b.co") == (None, "a@b.co", None)
+    assert clean("", "")[2] == "missing" and clean("12345", "")[2] == "bad_phone" and clean("", "nope")[2] == "bad_email"
+
+
+def test_callback_consent_delete_purge_and_note_redaction():
+    from datetime import datetime, timedelta, timezone
+    from core import callback
+    callback.save("cb", "Asha", "9876543210", None, "Morning", "my pan is ABCDE1234F", "{}", "frustration", "en")
+    assert callback.has_request("cb") and consent.CALLBACK in consent.active("cb")
+    row = next(r for r in callback.queue() if r["user"] == "cb")
+    assert "ABCDE" not in row["note"]
+    callback.save("cb", "Asha", "9876500000", None, "Morning", "", "{}", "frustration", "en")
+    assert sum(r["user"] == "cb" for r in callback.queue()) == 1
+    callback.delete("cb")
+    assert not callback.has_request("cb") and consent.records("cb")[-1]["withdrawn_at"]
+    callback.save("old", "", "9876543210", None, "Any time", "", "{}", "x", "en")
+    callback.purge(datetime.now(timezone.utc) + timedelta(days=91))
+    assert not callback.has_request("old")

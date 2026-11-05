@@ -108,3 +108,23 @@ def test_quote_addon_can_answer_a_question_the_chat_skipped():
     assert not whatsapp.disabled
     whatsapp.check().run(); assert not q.exception
     assert any("1,249" in m.value or "2,348" in m.value for m in q.markdown)
+
+
+def test_callback_form_needs_contact_and_consent_and_masks_in_queue():
+    at = AppTest.from_file(str(ROOT / "app/pages/1_Advisor.py"), default_timeout=30).run()
+    at.chat_input[0].set_value("this is useless, let me talk to a human").run()
+    submit = next(b for b in at.button if "call back" in b.label)
+    submit.click().run()
+    assert any("mobile number" in e.value for e in at.error)
+    at.text_input[1].set_value("9876543210")
+    next(b for b in at.button if "call back" in b.label).click().run()
+    assert any("tick" in e.value for e in at.error)
+    at.checkbox[0].check()
+    next(b for b in at.button if "call back" in b.label).click().run()
+    assert not at.exception and at.success
+    q = AppTest.from_file(str(ROOT / "app/pages/6_Partner_Queue.py"), default_timeout=60).run()
+    assert not q.exception
+    shown = q.dataframe[0].value.astype(str).to_string()
+    assert "9876543210" not in shown and "3210" in shown
+    next(b for b in at.button if "Delete" in b.label).click().run()
+    assert not at.exception and not at.success

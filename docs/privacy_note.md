@@ -7,6 +7,7 @@
 | Notice and consent | A notice before any KYC data states what is collected, why, how long it is kept and who sees it, in English or Hindi. Each purpose has its own unticked checkbox: KYC verification (required), order updates (optional). We store purpose, notice version, language and timestamp. |
 | Purpose limitation | KYC data is used only to verify the business and activate service. Order updates are a separate, optional consent. |
 | Data minimisation | The advisor asks only for business facts. It never asks for Aadhaar, PAN or bank numbers. If a user volunteers one, it is removed before the text is stored, logged or sent to the LLM, and the user is pointed to KYC. |
+| Call-backs | Name and phone or email come only from a separate form with its own unticked consent, never from chat and never to the LLM. Requests are deleted after 90 days or when the customer removes them. They are stored in full for the team and masked on the demo queue. |
 | Retention | Uploaded images are held in memory during verification and never written to disk. We keep only the verdict, reason and masked fields. **Proposed policy, to be confirmed with legal:** keep these for the life of the service. |
 | Masking | ID and GSTIN values appear in the UI and database as last 4 characters only. |
 | Withdrawal | Consent can be withdrawn from the tracker. Withdrawing KYC consent deletes the stored KYC result; the consent record itself stays as proof, with a withdrawal timestamp. |

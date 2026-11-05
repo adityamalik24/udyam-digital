@@ -126,6 +126,7 @@ TXT = {
  "faq_tax": {"en": "The prices I quote are the catalogue monthly prices. I don't have the tax breakdown, so please confirm with a specialist whether GST is added on the bill.", "hi": "मैं कैटलॉग की मासिक कीमत बताता हूँ। टैक्स का ब्योरा मेरे पास नहीं है, इसलिए बिल पर GST के बारे में विशेषज्ञ से पूछ लें।", "hinglish": "Main catalogue ka monthly price batata hoon. Tax ka breakup mere paas nahi hai, isliye bill par GST ke baare mein specialist se confirm kar lijiye."},
  "restart": {"en": "Sure, let's start over. I've cleared your earlier answers.", "hi": "ठीक है, फिर से शुरू करते हैं। मैंने आपके पिछले जवाब हटा दिए हैं।", "hinglish": "Theek hai, phir se shuru karte hain. Maine aapke pichhle answers hata diye hain."},
  "pause": {"en": "Okay, I'll stop asking for now. Message me whenever you're ready, or say \"start over\" for a fresh chat.", "hi": "ठीक है, अभी और नहीं पूछूँगा। जब चाहें मैसेज करें, या नई शुरुआत के लिए \"शुरू से\" लिखें।", "hinglish": "Theek hai, abhi aur nahi poochunga. Jab chahein message kijiye, ya fresh start ke liye \"shuru se\" likhiye."},
+ "contact_form": {"en": "I don't keep contact details typed in chat. To hear from our team, please use the \"Talk to a person\" form on this page.", "hi": "चैट में लिखी संपर्क जानकारी मैं नहीं रखता। हमारी टीम से बात के लिए इसी पेज पर \"किसी व्यक्ति से बात करें\" फ़ॉर्म भरें।", "hinglish": "Chat mein likhi contact details main nahi rakhta. Team se baat karne ke liye isi page par \"Talk to a person\" form bhariye."},
  "more_help": {"en": "Could you tell me what you need it to do? For example, internet, email, CCTV or a mobile line.", "hi": "क्या बता सकते हैं कि आपको क्या चाहिए? जैसे इंटरनेट, ईमेल, सीसीटीवी या मोबाइल लाइन।", "hinglish": "Kya bata sakte hain ki aapko kya chahiye? Jaise internet, email, CCTV ya mobile line."},
 }
 NEEDS_CANON = {"toll.free": "toll_free"}
@@ -428,6 +429,7 @@ def turn(s: State, raw: str, llm_client=None) -> str:
     lang = s.profile.language
     reply = _route(s, text, found, lang, llm_client)
     if bad_gstin: reply = _join(_lang_text("gst_bad", lang), reply)
+    if "[contact removed]" in text: reply = _join(_lang_text("contact_form", lang), reply)
     s.history += [("user", text), ("assistant", reply)]
     return reply
 

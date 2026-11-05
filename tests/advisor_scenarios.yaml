@@ -101,3 +101,5 @@
 - {id: g6, name: "SD-WAN still asks every size question it needs", turns: ["retail chain", "sd-wan", "Delhi", "15", "3", "yes"], has: [P10], qty: {P10: 3}}
 - {id: g7, name: "Leased line asks GSTIN and staff", turns: ["factory", "leased line", "Surat", "40", "1", "yes"], has: [P05]}
 - {id: g8, name: "Hindi question gives the reason", turns: ["मेरी दुकान है", "व्हाट्सएप चाहिए", "पुणे"], reply_has: "GSTIN", reply_has2: "इसके बिना नहीं", lang: hi}
+- {id: c1, name: "Phone in chat is removed and points to the form", turns: ["this is useless", "call me on 9876543210"], reply_has: "Talk to a person", reply_lacks: "9876543210", history_lacks: "9876543210"}
+- {id: c2, name: "Email address in chat is removed, not read as an email need", turns: ["clinic", "reach me at owner@example.com"], reply_has: "Talk to a person", history_lacks: "owner@example.com", no_need: [cloud_email]}

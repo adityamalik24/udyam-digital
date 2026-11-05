@@ -2,7 +2,7 @@
 from . import db
 
 NOTICE_VERSION = "v1.0-2026-07"
-KYC, UPDATES = "kyc_verification", "order_updates"
+KYC, UPDATES, CALLBACK = "kyc_verification", "order_updates", "callback_contact"
 REQUIRED = {KYC}
 
 
@@ -22,6 +22,8 @@ def withdraw(user: str, purpose: str) -> None:
         c.execute("UPDATE consent SET withdrawn_at=? WHERE user=? AND purpose=? AND withdrawn_at IS NULL", (db.now(), user, purpose))
         if purpose == KYC:  # stop processing and erase what that consent allowed us to keep
             c.execute("DELETE FROM kyc WHERE user=?", (user,))
+        if purpose == CALLBACK:
+            c.execute("DELETE FROM callbacks WHERE user=?", (user,))
 
 
 def records(user: str) -> list[dict]:

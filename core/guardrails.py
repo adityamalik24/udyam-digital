@@ -10,6 +10,7 @@ PAN = re.compile(r"\b[A-Za-z]{5}\d{4}[A-Za-z]\b")
 IFSC = re.compile(r"\b[A-Za-z]{4}0[A-Za-z0-9]{6}\b")
 BANK = re.compile(r"(?:account|a/c|acct|khata|खाता|bank|बैंक)[^\d]{0,25}(\d{9,18})", re.I)
 LONG_DIGITS = re.compile(r"(?<!\d)\d{13,18}(?!\d)")
+EMAIL_ADDR = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
 PHONE = re.compile(r"(?<![\d])(?:\+?91[ -]?)?[6-9]\d{9}(?!\d)")
 
 
@@ -26,7 +27,7 @@ def redact(text: str) -> tuple[str, list[str]]:
     text = sub(PAN, "PAN", text)
     text = sub(IFSC, "IFSC", text)
     text = sub(LONG_DIGITS, "bank number", text)
-    text = PHONE.sub("[phone removed]", text)  # contact detail, not an ID: removed without a warning
+    text = EMAIL_ADDR.sub("[contact removed]", PHONE.sub("[contact removed]", text))  # the call-back form is the place for these
     return text, found
 
 
