@@ -2,6 +2,7 @@ import sys; from pathlib import Path; sys.path.insert(0, str(Path(__file__).reso
 import common as c
 import streamlit as st
 from core import orders
+from core.advisor import why_text, trade_text
 from core.catalogue import catalogue
 from core.pricing import price, first_payment, contract_total, summary_text
 from core.rules import apply_addons, eligible, reason_text, ADJUSTABLE_UNITS, MAX_QTY
@@ -69,19 +70,21 @@ with notes_box:
 with alt_box:
     if rec.alternative:
         if use_alt:
+            st.warning(W("**You're on the cheaper option.**", "**आप सस्ते विकल्प पर हैं।**") + "\n\n" + trade_text(rec, lang))
             if st.button(W("Back to the recommended plan", "सुझाए गए प्लान पर वापस जाएँ"), use_container_width=True):
                 st.session_state.use_alt = False; st.rerun()
         else:
             alt_q, saving = rec.alt_quote, rec.quote.monthly - rec.alt_quote.monthly
             names = ", ".join(cat[k].name for k in rec.alternative)
-            extra = W(" It's mobile data only, with no fixed connection.", " इसमें केवल मोबाइल डेटा है, कोई फिक्स्ड कनेक्शन नहीं।") if rec.alt_kind == "mobile_only" else ""
-            st.success(W(f"**Cheaper option:** {names}. Saves ₹{saving:,} a month.{extra}", f"**सस्ता विकल्प:** {names}। हर महीने ₹{saving:,} की बचत।{extra}"))
+            st.success(W(f"**Cheaper option:** {names}. Saves ₹{saving:,} a month.", f"**सस्ता विकल्प:** {names}। हर महीने ₹{saving:,} की बचत।") + "\n\n" + trade_text(rec, lang))
             if st.button(W("Switch to the cheaper option", "सस्ते विकल्प पर जाएँ"), use_container_width=True):
                 st.session_state.use_alt = True; st.rerun()
 
 with lines_box:
     for l in q.lines:
         st.markdown(f"**{l.name}**" + (f" × {l.qty}" if l.qty > 1 else "") + f" · ₹{l.monthly:,}  \n{cat[l.product_id].description}")
+        why = why_text(rec, l.product_id, lang) if not use_alt and l.product_id in rec.items else ""
+        if why: st.caption(W("Why: ", "क्यों: ") + why)
         if l.unit in ADJUSTABLE_UNITS:
             st.number_input(UNIT[l.unit], 1, MAX_QTY, l.qty, key=f"qty_{l.product_id}")
 

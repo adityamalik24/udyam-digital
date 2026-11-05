@@ -6,6 +6,7 @@ if not os.getenv("LIVE_LLM"): os.environ["LLM_API_KEY"] = ""  # offline unless a
 import yaml
 from core.advisor import State, turn
 from core.guardrails import check_reply
+from core.rules import mentionable
 
 
 def run(sc):
@@ -38,7 +39,7 @@ def run(sc):
     if "max_asked" in sc and len(s.asked) > sc["max_asked"]: errs.append(f"asked {s.asked}")
     if len(s.asked) > 6: errs.append(f"too many questions {s.asked}")
     if s.rec and s.rec.quote and len(sc["turns"]) and reply.count("₹") >= 2:
-        bad = check_reply(reply, s.rec.quote, s.rec.alt_quote, {e[0] for e in s.rec.excluded})
+        bad = check_reply(reply, s.rec.quote, s.rec.alt_quote, mentionable(s.rec))
         if bad: errs.append(f"guardrail {bad}")
     return errs, reply
 

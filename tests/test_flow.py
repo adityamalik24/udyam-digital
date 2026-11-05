@@ -216,3 +216,8 @@ def test_plan_changes_update_the_order_until_kyc_moves_it():
     assert orders.update_quote(oid, {"P04": 1}, price({"P04": 1})) and orders.get(oid)["monthly"] == price({"P04": 1}).monthly
     orders.advance(oid, "KYC verified")
     assert not orders.update_quote(oid, {"P01": 1}, price({"P01": 1})) and orders.get(oid)["monthly"] == price({"P04": 1}).monthly
+
+
+@pytest.mark.parametrize("claim", ["the best plan", "सबसे बढ़िया प्लान", "sabse badhiya plan", "a perfect fit"])
+def test_rewrite_cannot_claim_a_plan_is_the_best(claim):
+    assert G.check_reply(f"Biz Fibre 100 is {claim} at ₹1,099", price({"P01": 1}))

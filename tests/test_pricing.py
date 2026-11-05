@@ -24,3 +24,18 @@ def test_first_payment_total_and_summary():
     assert contract_total(q) == q.monthly * 12 + q.setup
     text = summary_text(q, {"P01": "fibre"})
     assert "Rs 1,597 per month" in text and "P01" not in text and "P23" not in text
+
+
+def test_real_purchases_confirm_the_billing_method():
+    """All 368 activated leads: value within quantity x range, setup per unit, longest contract."""
+    import csv, re
+    from core.catalogue import DATA
+    raw = {r["product_id"]: r for r in csv.DictReader(open(DATA / "product_catalogue.csv", encoding="utf-8"))}
+    rows = [l for l in csv.DictReader(open(DATA / "smb_leads.csv", encoding="utf-8")) if l["outcome"] == "Activated"]
+    assert len(rows) == 368
+    for l in rows:
+        it = [(p, int(n)) for p, n in re.findall(r"(P\d\d)x(\d+)", l["bundle_products"])]
+        low = sum(int(raw[p]["price_min_inr_per_month"]) * n for p, n in it); high = sum(int(raw[p]["price_max_inr_per_month"]) * n for p, n in it)
+        assert low - 1 <= float(l["monthly_bundle_value_inr"]) <= high + 1
+        assert abs(float(l["one_time_setup_inr"]) - sum(int(raw[p]["one_time_setup_inr"]) * n for p, n in it)) <= 1
+        assert int(float(l["contract_months"])) == max(int(raw[p]["min_contract_months"]) for p, _ in it)

@@ -187,3 +187,11 @@ def test_current_bill_comparison_and_download():
     q = _quote(CLINIC)
     next(n for n in q.number_input if n.key == "current_bill").set_value(3000).run(); assert not q.exception
     assert any("₹329 a month less" in m.value for m in q.markdown)
+
+
+def test_quote_page_says_why_and_what_the_cheaper_option_gives_up():
+    q = _quote("clinic in Delhi 6 staff 1 location need internet")
+    assert any("Why:" in x.value and "lowest-priced wired" in x.value for x in q.caption)
+    assert any("you'd get wireless 5G" in x.value for x in q.success)
+    next(b for b in q.button if "cheaper" in b.label).click().run(); assert not q.exception
+    assert any("miss" in w.value for w in q.warning)

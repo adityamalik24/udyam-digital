@@ -36,6 +36,8 @@ class Profile(BaseModel):
     cameras: int = 1
     vehicles: int = 1
     devices_iot: int = 1
+    declined: list[str] = Field(default_factory=list)
+    link_pref: str | None = None  # "fibre" or "5g" when the owner asked for one
 
 
 def _reason(p: Product, prof: Profile) -> tuple[str, dict] | None:
@@ -79,8 +81,11 @@ class Recommendation:
     alternative: dict[str, int] | None = None
     alt_quote: Quote | None = None
     alt_kind: str | None = None
+    alt_blocked: list[str] = field(default_factory=list)  # add-ons this owner could have, but not on the cheaper link
     handoff: str | None = None
     serviceable: bool = True
+    auto_security: bool = False  # added by us, not asked for: said so, and removable
+    link_reason: tuple | None = None  # (reason key, values for the wording)
 
 
 def _qty(pid: str, prof: Profile) -> int:
@@ -107,12 +112,27 @@ def _base_link(prof: Profile, needs: set[str]) -> tuple[str | None, list]:
     if "high_speed" in needs and ok("P03"):
         return "P03", exc
     fibre_needed = bool({NEED_PRODUCT[n] for n in needs if n in NEED_PRODUCT} & FIBRE_ONLY)
+    if prof.link_pref == "5g" and not fibre_needed and ok("P04"): return "P04", exc
     large = (prof.employees or 1) >= 10 or (prof.locations or 1) >= 3
     if large and ok("P02"): return "P02", exc
-    if prof.business_type in MICRO and (prof.locations or 1) == 1 and not fibre_needed and ok("P04"):
+    if prof.business_type in MICRO and (prof.locations or 1) == 1 and not fibre_needed and prof.link_pref != "fibre" and ok("P04"):
         return "P04", exc  # cheapest eligible link for price-sensitive single-site micro businesses
     if ok("P01"): return "P01", exc
     return None, exc
+
+
+def _link_reason(link: str, prof: Profile, needs: set[str], asked_for_link: bool, excluded: list) -> tuple | None:
+    """Why this connection, not another. Only facts the rule actually used."""
+    if link in ("P03", "P05", "P06"): return None  # the owner asked for this level of service
+    needing = next((catalogue()[NEED_PRODUCT[n]].name for n in needs if NEED_PRODUCT.get(n) in FIBRE_ONLY), None)
+    if needing: return ("fibre_needed", {"name": needing})
+    if "high_speed" in needs and any(e[0] == "P03" for e in excluded): return ("closest", {"reason_pid": "P03"})
+    if prof.link_pref == "5g" and link == "P04": return ("asked_5g", {})
+    if prof.link_pref == "fibre": return ("asked_fibre", {})
+    if not asked_for_link: return ("implied", {})
+    if link == "P02":
+        return ("sites", {"n": prof.locations}) if (prof.employees or 1) < 10 else ("staff", {"n": prof.employees})
+    return ("micro", {}) if link == "P04" else ("lowest_wired", {})
 
 
 def recommend(prof: Profile) -> Recommendation:
@@ -123,7 +143,8 @@ def recommend(prof: Profile) -> Recommendation:
         rec.excluded = [(p, ("tier", {"tier": prof.city_tier, "tiers": cat[p].tiers})) for p in ("P01", "P04", "P07")]
         return rec
     # Clinics and offices hold client data: email on a professional office includes endpoint security.
-    if "cloud_email" in needs and prof.business_type in PROFESSIONAL:
+    if "cloud_email" in needs and prof.business_type in PROFESSIONAL and "security" not in prof.declined:
+        rec.auto_security = "security" not in needs
         needs.add("security")
     items: dict[str, int] = {}
     wanted = [n for n in prof.needs if n in NEED_PRODUCT] + [n for n in needs - set(prof.needs) if n in NEED_PRODUCT]
@@ -143,6 +164,7 @@ def recommend(prof: Profile) -> Recommendation:
         rec.excluded += [e for e in exc if e[0] not in {x[0] for x in rec.excluded}]
         if link:
             items = {link: _qty(link, prof), **items}
+            rec.link_reason = _link_reason(link, prof, needs, bool(wants_link), rec.excluded)
             rec.why[link] = next((n for n in ("dedicated_bandwidth", "high_speed", "internet_for_upi_pos") if n in needs), "internet")
             if not wants_link and deps:
                 rec.auto_added[link] = deps[0]
@@ -152,6 +174,9 @@ def recommend(prof: Profile) -> Recommendation:
     if rec.items:
         rec.quote = price(rec.items)
         _alternative(rec, prof, needs)
+        if rec.alternative and rec.alt_kind != "mobile_only":
+            old, new = next((p for p in rec.items if p not in rec.alternative), None), next((p for p in rec.alternative if p not in rec.items), None)
+            rec.alt_blocked = [p.id for p in cat.values() if old in p.requires_one_of and new not in p.requires_one_of and eligible(p.id, prof)[0] and p.id not in rec.alternative]
     if (prof.employees or 0) >= LARGE_STAFF or (prof.locations or 0) >= LARGE_SITES:
         rec.handoff = rec.handoff or "large_account"
     if (prof.locations or 1) >= 2:
@@ -221,6 +246,21 @@ def _alternative(rec: Recommendation, prof: Profile, needs: set[str]) -> None:
 
 ADJUSTABLE_UNITS = {"per camera", "per line", "per user", "per device", "per vehicle", "per counter", "per channel", "per number", "per IP", "per pack"}
 MAX_QTY = 999
+
+
+def mentionable(rec: Recommendation) -> set[str]:
+    """Products a reply may name without offering them: exclusions, and what the cheaper option rules out."""
+    return {e[0] for e in rec.excluded} | set(rec.alt_blocked)
+
+
+def alt_diff(rec: Recommendation) -> dict | None:
+    """Facts for "what you'd give up", from the catalogue and the two quotes."""
+    if not rec.alternative: return None
+    cat = catalogue()
+    old = next((p for p in rec.items if p not in rec.alternative), None)
+    new = next((p for p in rec.alternative if p not in rec.items), None)
+    return {"old": old, "new": new, "saving": rec.quote.monthly - rec.alt_quote.monthly, "blocked": [cat[p].name for p in rec.alt_blocked],
+            "contract": (rec.quote.contract, rec.alt_quote.contract), "install": (rec.quote.install_days, rec.alt_quote.install_days)}
 
 
 def apply_addons(prof: Profile, base: dict[str, int], selected: set[str], qty: dict[str, int] | None = None) -> dict:

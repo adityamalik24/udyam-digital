@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from . import guardrails as G, llm
 from .catalogue import catalogue
 from .kyc import registry
-from .rules import Profile, Recommendation, recommend, reason_text, NEEDS, MICRO, QUESTION_VALUES, question_matters, gstin_product
+from .rules import Profile, Recommendation, recommend, reason_text, NEEDS, MICRO, QUESTION_VALUES, question_matters, gstin_product, alt_diff, mentionable
 
 TIER1 = {"delhi": "दिल्ली", "mumbai": "मुंबई", "bengaluru": "बेंगलुरु", "bangalore": "बैंगलोर", "chennai": "चेन्नई", "kolkata": "कोलकाता", "hyderabad": "हैदराबाद", "pune": "पुणे", "ahmedabad": "अहमदाबाद",
          "gurgaon": "गुड़गांव", "gurugram": "गुरुग्राम", "noida": "नोएडा"}
@@ -35,7 +35,10 @@ CLAUSE = re.compile(r"[,.;]|\bbut\b|\bonly\b|\bjust\b|\bsirf\b|\bbas\b|\blekin\b
 
 
 def _negated(t: str, start: int, end: int) -> bool:
-    return bool(NEG_BEFORE.search(CLAUSE.split(t[:start])[-1]) or NEG_AFTER.search(CLAUSE.split(t[end:])[0]))
+    before = CLAUSE.split(t[:start])[-1]
+    # A bare "no internet" means they lack it, so "no X" only declines products other than a connection.
+    bare_no = bool(re.search(r"\b(no|not)\s+$", before)) and not re.match(r"internet|broadband|fibre|fiber|net\b|wi-?fi", t[start:end])
+    return bool(bare_no or NEG_BEFORE.search(before) or NEG_AFTER.search(CLAUSE.split(t[end:])[0]))
 
 
 def _find_city(t: str, text: str, awaiting: str | None) -> str | None:
@@ -182,6 +185,59 @@ class State:
     restarted: bool = False  # tells the page to clear the visible chat
 
 
+LINK_WHY = {
+ "fibre_needed": ("{name} only works on wired fibre", "{name} केवल वायर्ड फाइबर पर चलता है", "{name} sirf wired fibre par chalta hai"),
+ "closest": ("the fastest connection you can get right now, since Biz Fibre 1G isn't available to you", "आपके लिए उपलब्ध सबसे तेज़ कनेक्शन, क्योंकि Biz Fibre 1G आपके लिए उपलब्ध नहीं है", "aapke liye available sabse fast connection, kyunki Biz Fibre 1G aapke liye available nahi hai"),
+ "asked_5g": ("the wireless 5G connection you asked for", "आपका माँगा हुआ वायरलेस 5G कनेक्शन", "aapka manga hua wireless 5G connection"),
+ "asked_fibre": ("the wired fibre connection you asked for", "आपका माँगा हुआ वायर्ड फाइबर कनेक्शन", "aapka manga hua wired fibre connection"),
+ "implied": ("this needs internet at your site; tell me if you already have it and I'll take this out", "इसके लिए आपकी साइट पर इंटरनेट चाहिए; पहले से है तो बताएँ, मैं इसे हटा दूँगा", "iske liye site par internet chahiye; already hai to bataiye, main ise hata dunga"),
+ "staff": ("300 Mbps because {n} people will share it", "300 Mbps, क्योंकि इसे {n} लोग इस्तेमाल करेंगे", "300 Mbps, kyunki ise {n} log use karenge"),
+ "sites": ("300 Mbps for each of your {n} locations", "आपकी {n} लोकेशन में से हर एक के लिए 300 Mbps", "aapki {n} locations mein se har ek ke liye 300 Mbps"),
+ "micro": ("our lowest-priced fixed connection, and it's plug-and-play for a single shop", "हमारा सबसे कम कीमत वाला फिक्स्ड कनेक्शन, एक दुकान के लिए प्लग-एंड-प्ले", "hamara sabse kam price wala fixed connection, ek shop ke liye plug-and-play"),
+ "lowest_wired": ("our lowest-priced wired connection, at 100 Mbps", "हमारा सबसे कम कीमत वाला वायर्ड कनेक्शन, 100 Mbps", "hamara sabse kam price wala wired connection, 100 Mbps"),
+}
+AUTO_SECURITY = ("I added this because offices like yours hold client data; say \"remove security\" if you don't want it", "मैंने इसे इसलिए जोड़ा क्योंकि आपके जैसे ऑफिस में क्लाइंट का डेटा होता है; नहीं चाहिए तो \"remove security\" लिखें", "Maine ise isliye add kiya kyunki aapke jaise office mein client data hota hai; nahi chahiye to \"remove security\" likhiye")
+TRADE = {
+ ("P02", "P01"): ("the faster 300 Mbps speed; you'd get 100 Mbps", "तेज़ 300 Mbps स्पीड; आपको 100 Mbps मिलेगा", "fast 300 Mbps speed; aapko 100 Mbps milega"),
+ ("P01", "P04"): ("wired fibre; you'd get wireless 5G", "वायर्ड फाइबर; आपको वायरलेस 5G मिलेगा", "wired fibre; aapko wireless 5G milega"),
+ ("P03", "P02"): ("1 Gbps speed and priority support; you'd get 300 Mbps", "1 Gbps स्पीड और प्रायोरिटी सपोर्ट; आपको 300 Mbps मिलेगा", "1 Gbps speed aur priority support; aapko 300 Mbps milega"),
+ ("P06", "P05"): ("100 Mbps and the 99.9% SLA; you'd get 20 Mbps with a 99.5% SLA", "100 Mbps और 99.9% SLA; आपको 20 Mbps और 99.5% SLA मिलेगा", "100 Mbps aur 99.9% SLA; aapko 20 Mbps aur 99.5% SLA milega"),
+ ("P04", "P07"): ("a fixed connection at your site; you'd only have mobile data (50 GB)", "आपकी साइट पर फिक्स्ड कनेक्शन; केवल मोबाइल डेटा (50 GB) मिलेगा", "site par fixed connection; sirf mobile data (50 GB) milega"),
+ ("P08", "P07"): ("the extra data, roaming and priority care; you'd get 50 GB instead of 150 GB", "ज़्यादा डेटा, रोमिंग और प्रायोरिटी केयर; 150 GB की जगह 50 GB मिलेगा", "zyada data, roaming aur priority care; 150 GB ki jagah 50 GB milega"),
+}
+ALT_WORDS = {"lose": ("What you'd miss: {x}.", "आपको यह नहीं मिलेगा: {x}।", "Aapko yeh nahi milega: {x}."),
+             "blocked": ("You also couldn't add {x}, which need wired fibre.", "आप {x} भी नहीं जोड़ पाएँगे, इनके लिए वायर्ड फाइबर चाहिए।", "Aap {x} bhi add nahi kar payenge, inke liye wired fibre chahiye."),
+             "contract": ("You'd get a {b}-month contract instead of {a}.", "अनुबंध {a} की जगह {b} महीने का होगा।", "Contract {a} ki jagah {b} months ka hoga."),
+             "install": ("Installation usually takes about {b} {day} instead of {a}.", "इंस्टॉलेशन में आमतौर पर {a} की जगह लगभग {b} दिन लगते हैं।", "Installation mein usually {a} ki jagah lagbhag {b} din lagte hain.")}
+
+
+def _col(lang: str) -> int: return {"en": 0, "hi": 1, "hinglish": 2}.get(lang, 0)
+
+
+def why_text(rec: Recommendation, pid: str, lang: str) -> str:
+    """Why this product is in the plan, in plain words."""
+    if rec.link_reason and rec.why.get(pid) and catalogue()[pid].category == "Connectivity" and pid in ("P01", "P02", "P04"):
+        return LINK_WHY[rec.link_reason[0]][_col(lang)].format(**rec.link_reason[1])
+    if pid == "P20" and rec.auto_security: return AUTO_SECURITY[_col(lang)]
+    w = WHY.get(rec.why.get(pid, ""))
+    return w[_col(lang)] if w else ""
+
+
+def trade_text(rec: Recommendation, lang: str) -> str:
+    """What the cheaper option gives up and what changes. Catalogue facts only."""
+    d = alt_diff(rec)
+    if not d: return ""
+    i, parts = _col(lang), []
+    lost = TRADE.get((d["old"], d["new"]))
+    if lost: parts.append(ALT_WORDS["lose"][i].format(x=lost[i]))
+    if d["blocked"]: parts.append(ALT_WORDS["blocked"][i].format(x=", ".join(d["blocked"])))
+    a, b = d["contract"]
+    if a != b: parts.append(ALT_WORDS["contract"][i].format(a=a, b=b))
+    a, b = d["install"]
+    if a != b: parts.append(ALT_WORDS["install"][i].format(a=a, b=b, day="day" if b == 1 else "days"))
+    return " ".join(parts)
+
+
 def detect_language(text: str, current: str) -> str:
     if DEVANAGARI.search(text): return "hi"
     if HING.search(text): return "hinglish"
@@ -263,6 +319,9 @@ def extract_profile(text: str, p: Profile, awaiting: str | None = None) -> dict:
     if only_sim: needs = ["mobile_premium" if "mobile_premium" in needs else "mobile_line"]; u["only"] = True
     if needs: u["needs"] = needs
     if declined: u["declined"] = declined
+    if not EXISTING.search(t):
+        if re.search(r"(?<!backup )(?<!back up )\b5g\b(?! backup| failover)|airfiber|wireless|वायरलेस", tn): u["link_pref"] = "5g"
+        elif re.search(r"fibre|fiber|wired|फाइबर", tn): u["link_pref"] = "fibre"
     setup = []
     if EXISTING.search(t): setup.append("existing_link")
     if re.search(r"business broadband", t): setup.append("business_broadband")
@@ -297,10 +356,10 @@ def _merge(s: State, u: dict) -> None:
     for k, v in u.items():
         if k == "needs":
             p.needs = list(v) if u.get("only") else list(dict.fromkeys(p.needs + list(v)))
-            s.declined = [n for n in s.declined if n not in v]
+            s.declined = p.declined = [n for n in s.declined if n not in v]
         elif k == "declined":
             p.needs = [n for n in p.needs if n not in v]
-            s.declined = list(dict.fromkeys(s.declined + list(v)))
+            s.declined = p.declined = list(dict.fromkeys(s.declined + list(v)))
         elif k == "current_setup":
             p.current_setup = list(dict.fromkeys(p.current_setup + list(v)))
         elif k != "only":
@@ -355,18 +414,15 @@ def render_rec(s: State) -> str:
     cat = catalogue()
     if not rec.quote: return _lang_text("none", lang) + _excluded(rec, lang)
     parts = [_lang_text("rec", lang)]
-    col = {"en": 0, "hi": 1, "hinglish": 2}.get(lang, 0)
     for l in rec.quote.lines:
-        why = WHY.get(rec.why.get(l.product_id, ""))
-        parts.append(f"- {l.name}" + (f" × {l.qty}" if l.qty > 1 else "") + f": ₹{l.monthly:,}" + (f" ({why[col]})" if why else ""))
+        why = why_text(rec, l.product_id, lang)
+        parts.append(f"- {l.name}" + (f" × {l.qty}" if l.qty > 1 else "") + f": ₹{l.monthly:,}" + (f" ({why})" if why else ""))
     parts.append(_lang_text("monthly", lang, m=rec.quote.monthly, s=rec.quote.setup, c=rec.quote.contract))
     for a, b in rec.auto_added.items():
         parts.append(_lang_text("dep", lang, a=cat[a].name, b=cat[b].name))
     if rec.alternative:
         names = ", ".join(cat[k].name for k in rec.alternative)
-        t = _lang_text("alt", lang, names=names, m=rec.alt_quote.monthly)
-        if rec.alt_kind == "mobile_only": t += _lang_text("alt_mobile", lang)
-        parts.append(t)
+        parts.append(_join(_lang_text("alt", lang, names=names, m=rec.alt_quote.monthly), trade_text(rec, lang)))
     x = _excluded(rec, lang)
     if x: parts.append(x.strip())
     if rec.handoff == "multi_site": parts.append(_lang_text("multi", lang))
@@ -391,7 +447,7 @@ def _polish(draft: str, s: State, client=None) -> str:
     for _ in range(2):
         out = llm.rewrite(draft, s.profile.language, client)
         if not out: break  # the service failed: don't make the owner wait for a second try
-        if not G.check_reply(out, q, alt, {e[0] for e in s.rec.excluded}, draft) and not G.dropped_facts(out, draft, alt, [catalogue()[e[0]].name for e in s.rec.excluded]): return out
+        if not G.check_reply(out, q, alt, mentionable(s.rec), draft) and not G.dropped_facts(out, draft, alt, [catalogue()[e[0]].name for e in s.rec.excluded]): return out
     return draft
 
 
@@ -528,7 +584,7 @@ def _route(s, text, found, lang, llm_client):
         return _lang_text("proceed", lang)
     if s.rec and s.rec.alternative and G.CHEAPER_ASK.search(text) and not u:
         cat = catalogue()
-        return _lang_text("alt", lang, names=", ".join(cat[k].name for k in s.rec.alternative), m=s.rec.alt_quote.monthly)
+        return _join(_lang_text("alt", lang, names=", ".join(cat[k].name for k in s.rec.alternative), m=s.rec.alt_quote.monthly), trade_text(s.rec, lang))
     if s.rec and THANKS.search(text) and not u:
         return _lang_text("next", lang)
     if s.awaiting == "needs_confirm" and not u.get("needs") and re.match(r"\s*((yes|yeah|ok|okay|haan|han|ji|theek)\b|हाँ|हां|जी|ठीक)", text.lower()):

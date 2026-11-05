@@ -1,7 +1,7 @@
 import sys, pathlib; sys.path.insert(0, str(pathlib.Path(__file__).parents[1]))
 import pytest
 from core.catalogue import catalogue
-from core.rules import Profile, recommend, eligible, enforce_dependencies, apply_addons, NEEDS
+from core.rules import Profile, recommend, eligible, enforce_dependencies, apply_addons, NEEDS, mentionable
 
 def P(**k):
     d = dict(business_type="kirana", employees=2, locations=1, city="Patna", city_tier=2, has_gstin=False, needs=["internet_for_upi_pos"])
@@ -104,7 +104,7 @@ def test_every_template_reply_passes_the_guardrail():
             r = recommend(prof)
             if not r.quote: continue
             s = State(profile=prof, rec=r)
-            assert not check_reply(render_rec(s), r.quote, r.alt_quote, {e[0] for e in r.excluded}), (prof, r.items)
+            assert not check_reply(render_rec(s), r.quote, r.alt_quote, mentionable(r)), (prof, r.items)
 
 
 def test_fibre_only_addon_replaces_airfiber():
@@ -161,3 +161,39 @@ def test_quantities_are_limited_and_only_for_countable_products():
     assert apply_addons(prof, {"P04": 1, "P23": 1}, set(), {"P23": -3})["items"]["P23"] == 1
     assert apply_addons(prof, {"P04": 1, "P23": 1}, set(), {"P23": 99999})["items"]["P23"] == 999
     assert apply_addons(prof, {"P04": 1}, set(), {"P04": 5, "P23": 2}) ["items"] == {"P04": 1}  # per site, and not in the plan
+
+
+def test_every_cheaper_option_says_what_it_gives_up():
+    from core.advisor import trade_text
+    from core.rules import alt_diff
+    seen = set()
+    for prof in _audit_profiles():
+        r = recommend(prof)
+        d = alt_diff(r)
+        if not d: continue
+        seen.add((d["old"], d["new"]))
+        assert d["saving"] == r.quote.monthly - r.alt_quote.monthly > 0
+        for lang in ("en", "hi", "hinglish"):
+            assert trade_text(r, lang), (prof, r.items, r.alternative)
+    assert seen >= {("P02", "P01"), ("P01", "P04"), ("P03", "P02"), ("P04", "P07")}
+    big = recommend(Profile(business_type="manufacturer", city_tier=1, employees=30, locations=1, has_gstin=True, needs=["dedicated_bandwidth", "high_speed"]))
+    assert alt_diff(big)["old"] == "P06" and "99.9%" in trade_text(big, "en")
+
+
+def test_blocked_addons_match_the_catalogue():
+    from core.catalogue import catalogue
+    from core.rules import alt_diff
+    r = recommend(Profile(business_type="clinic", city_tier=1, employees=6, locations=1, has_gstin=True, needs=["internet"]))
+    names = {p.id for p in catalogue().values() if p.name in alt_diff(r)["blocked"]}
+    assert names == {"P09", "P11"}  # need fibre, and this owner qualifies: SD-WAN needs 3 sites, Firewall 10 staff
+
+
+def test_quote_matches_the_raw_csv_independently():
+    import csv, math
+    from core.catalogue import DATA
+    from core.pricing import price
+    raw = {r["product_id"]: r for r in csv.DictReader(open(DATA / "product_catalogue.csv", encoding="utf-8"))}
+    for pid, r in raw.items():
+        want = math.floor((int(r["price_min_inr_per_month"]) + int(r["price_max_inr_per_month"])) / 2 + 0.5)
+        q = price({pid: 3})
+        assert (q.monthly, q.setup, q.contract, q.install_days) == (want * 3, int(r["one_time_setup_inr"]) * 3, int(r["min_contract_months"]), int(r["typical_install_days"]))

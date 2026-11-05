@@ -72,7 +72,7 @@ def converse(text: str, lang: str, facts: str, c=None) -> str | None:
 
 EXPLAIN_SYS = """Rewrite an advisor's draft for a small-business owner, warmer and in plain language, in {lang}.
 Keep every product name exactly as written and every rupee amount exactly as written. Add no products, prices, dates,
-discounts, free items or promises, and don't call anything cheap, affordable or budget-friendly. Keep the cheaper option and every "not included" item with its reason. No product codes. Under 130 words. Output only the reply."""
+discounts, free items or promises, and don't call anything cheap, affordable or budget-friendly. Keep why each product is included, the cheaper option with what it gives up, and every "not included" item with its reason. No product codes. Under 170 words. Output only the reply."""
 
 
 def rewrite(draft: str, lang: str, c=None) -> str | None:

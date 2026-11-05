@@ -69,7 +69,7 @@
 - {id: a29, name: "Furniture showroom is retail, not a factory", turns: ["I have a furniture showroom in Jaipur"], profile: {business_type: retailer}}
 - {id: a30, name: "Absurd size goes to a person", turns: ["clinic in Pune 100000 people 1 location gst yes internet"], handoff: true}
 - {id: a31, name: "Negative staff count is ignored", turns: ["clinic in Pune, -5 people, need internet"], reply_has: "How many people", profile: {employees: null}}
-- {id: a32, name: "Reply says why", turns: ["Clinic in Delhi, 6 staff, one location, have GSTIN, want email"], reply_has: "business email and documents", reply_has2: "viruses"}
+- {id: a32, name: "Reply says why", turns: ["Clinic in Delhi, 6 staff, one location, have GSTIN, want email"], reply_has: "business email and documents", reply_has2: "client data"}
 - {id: a33, name: "Hindi reply says why", turns: ["मेरा क्लिनिक है, दिल्ली में, 6 लोग, एक ही, GSTIN है, ईमेल चाहिए"], reply_has: "ईमेल और दस्तावेज़", lang: hi}
 - {id: a34, name: "Backup internet is failover, not cloud backup", turns: ["pharmacy in Pune 3 staff one shop no GST need backup internet"], has: [P09, P01], lacks: [P17]}
 - {id: a35, name: "Backup of files is cloud backup", turns: ["CA firm in Pune 5 staff one office GST yes need backup of files"], has: [P17], lacks: [P09]}
@@ -108,3 +108,20 @@
 - {id: f3, name: "Free install by tomorrow is a promise question", turns: ["Clinic in Delhi, 6 staff, one location, want email", "Can you install it by tomorrow for free?"], reply_has: "can't promise", reply_lacks: "discount"}
 - {id: f4, name: "One shop answers locations, not staff", turns: ["kirana in Pune, need internet", "one shop"], reply_has: "How many people", profile: {locations: 1, employees: null}}
 - {id: f5, name: "Possessive patient records means security", turns: ["dental clinic in Mumbai, our patients' records worry me"], need: [security]}
+- {id: w1, name: "Asked for fibre gets fibre, even a kirana", turns: ["kirana in Pune 3 staff one shop, want fibre"], has: [P01], lacks: [P04], reply_has: "wired fibre connection you asked for"}
+- {id: w2, name: "Asked for 5G gets 5G, even a clinic", turns: ["clinic in Pune 3 staff one office, want 5G"], has: [P04], lacks: [P01], reply_has: "wireless 5G connection you asked for"}
+- {id: w3, name: "Backup 5G is not a request for 5G", turns: ["clinic in Pune 3 staff one office, need internet and backup 5G"], has: [P01, P09], lacks: [P04]}
+- {id: w4, name: "Remove security is honoured", turns: ["Clinic in Delhi, 6 staff, one location, want email", "remove security"], lacks: [P20], has: [P16]}
+- {id: w5, name: "No security in the first message is honoured", turns: ["CA firm Pune 5 people one office, want email but no security"], lacks: [P20], has: [P16]}
+- {id: w6, name: "Asking again brings security back", turns: ["Clinic in Delhi, 6 staff, one location, want email", "remove security", "actually add security"], has: [P20]}
+- {id: w7, name: "Added security says why and how to remove", turns: ["Clinic in Delhi, 6 staff, one location, want email"], reply_has: "remove security"}
+- {id: w8, name: "Asked-for security has no such note", turns: ["Clinic in Delhi, 6 staff, one location, want email and security"], has: [P20], reply_lacks: "remove security"}
+- {id: w9, name: "Implied connection says so", turns: ["Clinic in Delhi, 6 staff, one location, want email"], reply_has: "already have it"}
+- {id: w10, name: "Larger office says why 300 Mbps", turns: ["CA firm Pune 12 people one office, need internet"], has: [P02], reply_has: "12 people will share", reply_has2: "faster 300 Mbps"}
+- {id: w11, name: "AirFiber option says what changes", turns: ["clinic in Delhi 6 staff 1 location need internet"], reply_has: "wired fibre; you.d get wireless 5G", reply_has2: "6-month contract instead of 12"}
+- {id: w12, name: "AirFiber option lists what it blocks", turns: ["clinic in Delhi 6 staff 1 location need internet"], reply_has: "couldn't add .*Static IP", reply_lacks: "SD-WAN"}
+- {id: w13, name: "Mobile-only option warns about no connection", turns: ["Kirana in Patna, 2 people, one shop, no GSTIN, need internet for UPI"], reply_has: "miss: a fixed connection", reply_has2: "plug-and-play"}
+- {id: w14, name: "1G option gives up speed and support", turns: ["Law office in Mumbai, 20 staff, one office, have GST, need 1 Gbps internet"], has: [P03], reply_has: "miss: 1 Gbps speed and priority support"}
+- {id: w15, name: "Asking for cheaper also says what changes", turns: ["clinic in Delhi 6 staff 1 location need internet", "too expensive"], reply_has: "What you.d miss"}
+- {id: w16, name: "Hindi says what you give up", turns: ["मेरा क्लिनिक है, दिल्ली में, 6 लोग, एक ही, इंटरनेट चाहिए"], reply_has: "नहीं मिलेगा", lang: hi}
+- {id: w17, name: "Hinglish says what you give up", turns: ["mera clinic hai Delhi mein, 6 log hain, ek hi location, internet chahiye"], reply_has: "nahi milega", lang: hinglish}

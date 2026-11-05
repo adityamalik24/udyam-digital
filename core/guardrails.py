@@ -78,7 +78,7 @@ def out_of_catalogue(text: str):
 
 AMOUNT = re.compile(r"(?:₹|\brs\.?|\binr|रु\.?)\s*([\d,]+)|(\d[\d,]{2,})\s*(?:rupees?|रुपये|rupaye|per month|a month|/month|/mo\b|प्रति माह)", re.I)
 NUMBER = re.compile(r"\d[\d,]*")
-BAD_PROMISE = re.compile(r"budget.friendly|affordable|best (price|plan|deal)|guarantee|free upgrade|install(ed)? (by|tomorrow|today)|discount|गारंटी|मुफ़्त|मुफ्त|\bfree\b", re.I)
+BAD_PROMISE = re.compile(r"budget.friendly|affordable|\bbest\b|perfect|सबसे बढ़िया|सबसे अच्छा|sabse (badhiya|accha|achha)|guarantee|free upgrade|install(ed)? (by|tomorrow|today)|discount|गारंटी|मुफ़्त|मुफ्त|\bfree\b", re.I)
 CODE = re.compile(r"\bP\d{2}\b")
 
 
