@@ -1,7 +1,7 @@
 """Purpose-specific consent records (DPDP Act 2023). One row per purpose; withdrawal is a timestamp, not a delete."""
 from . import db
 
-NOTICE_VERSION = "v1.2-2026-07"  # change this whenever NOTICE or NOTICE_SHORT changes, so each record shows what the person actually saw
+NOTICE_VERSION = "v1.3-2026-07"  # change this whenever NOTICE or NOTICE_SHORT changes, so each record shows what the person actually saw
 KYC, UPDATES, CALLBACK = "kyc_verification", "order_updates", "callback_contact"
 REQUIRED = {KYC}
 PURPOSE_LABEL = {KYC: {"en": "KYC verification", "hi": "KYC सत्यापन"}, UPDATES: {"en": "Order updates", "hi": "ऑर्डर अपडेट"}, CALLBACK: {"en": "Call-back from our team", "hi": "हमारी टीम से कॉल बैक"}}
@@ -33,7 +33,7 @@ NOTICE = {
 
 **Your choices:** you can withdraw consent at any time on this page or in the tracker. Withdrawing KYC consent deletes your saved KYC result and puts your order on hold.
 
-**Questions or complaints:** use "Talk to a person" on the Advisor page. If that doesn't resolve it, you can complain to the Data Protection Board of India.
+**Questions or complaints:** use "Talk to a person" on the Advisor page, or write to our grievance officer at grievance@accel-business.example (a placeholder in this prototype). If that doesn't resolve it, you can complain to the Data Protection Board of India.
 """,
  "hi": """
 **हम क्या लेते हैं:** GST और Udyam प्रमाणपत्र, हस्ताक्षरकर्ता की ID, पते का प्रमाण।
@@ -46,7 +46,7 @@ NOTICE = {
 
 **आपके विकल्प:** आप इसी पेज पर या ट्रैकर में कभी भी सहमति वापस ले सकते हैं। KYC सहमति वापस लेने पर आपका सेव किया KYC परिणाम हट जाएगा और ऑर्डर रुक जाएगा।
 
-**सवाल या शिकायत:** Advisor पेज पर "किसी व्यक्ति से बात करें" का उपयोग करें। समाधान न होने पर आप भारत के डेटा संरक्षण बोर्ड से शिकायत कर सकते हैं।
+**सवाल या शिकायत:** Advisor पेज पर "किसी व्यक्ति से बात करें" का उपयोग करें, या हमारे शिकायत अधिकारी को grievance@accel-business.example पर लिखें (इस प्रोटोटाइप में यह प्लेसहोल्डर है)। समाधान न होने पर आप भारत के डेटा संरक्षण बोर्ड से शिकायत कर सकते हैं।
 """}
 
 # What to keep ready. Each line says only what core/kyc/checks.py really checks.
@@ -68,6 +68,9 @@ RECEIPT = {
  "hi": dict(title="Accel Business सहमति रसीद", ref="संदर्भ", notice="सूचना संस्करण", language="भाषा", given="दी गई", status="स्थिति", active="सक्रिय", withdrawn="वापस ली गई",
             foot="आप किसी भी सक्रिय सहमति को कभी भी सहमति पेज पर या ट्रैकर में वापस ले सकते हैं। सभी समय UTC में हैं। यह सिंथेटिक डेटा वाला डेमो है।"),
 }
+WITHDRAW_EFFECT = {KYC: {"en": "This deletes your saved KYC result and puts any order on hold.", "hi": "इससे आपका सेव किया KYC परिणाम हट जाएगा और ऑर्डर रुक जाएगा।"},
+                   UPDATES: {"en": "You'd stop getting status messages. Nothing else changes.", "hi": "स्टेटस मैसेज बंद हो जाएँगे। और कुछ नहीं बदलेगा।"},
+                   CALLBACK: {"en": "This deletes your call-back details.", "hi": "इससे आपकी कॉल-बैक जानकारी हट जाएगी।"}}
 LANGUAGE_NAME = {"en": "English", "hi": "हिन्दी"}
 
 
@@ -75,6 +78,7 @@ def grant(user: str, purpose: str, language: str) -> None:
     with db.conn() as c:
         c.execute("INSERT INTO consent(user,purpose,notice_version,language,granted_at) VALUES(?,?,?,?,?)",
                   (user, purpose, NOTICE_VERSION, language, db.now()))
+    db.audit(user, "consent_granted", purpose)
 
 
 def active(user: str) -> set[str]:
@@ -89,11 +93,22 @@ def withdraw(user: str, purpose: str) -> None:
             c.execute("DELETE FROM kyc WHERE user=?", (user,))
         if purpose == CALLBACK:
             c.execute("DELETE FROM callbacks WHERE user=?", (user,))
+    db.audit(user, "consent_withdrawn", purpose)
 
 
 def records(user: str) -> list[dict]:
     with db.conn() as c:
         return [dict(r) for r in c.execute("SELECT purpose,notice_version,language,granted_at,withdrawn_at FROM consent WHERE user=? ORDER BY id", (user,))]
+
+
+def what_we_hold(user: str) -> dict:
+    """Everything stored for this person, so they can see it in one place. Masked values only."""
+    from . import callback, orders
+    import json as _json
+    last = latest_kyc(user)
+    fields = _json.loads(last["fields"] or "{}") if last else {}
+    return {"consents": len(records(user)), "kyc": last["verdict"] if last else None, "gstin": fields.get("gstin_masked"), "id": fields.get("id_masked"),
+            "orders": len(orders.for_user(user)), "callback": callback.has_request(user)}
 
 
 def receipt_text(user: str, language: str) -> str:
@@ -113,6 +128,7 @@ def receipt_text(user: str, language: str) -> str:
 def save_kyc(user: str, verdict: str, reason: str, fields_json: str) -> None:
     with db.conn() as c:
         c.execute("INSERT INTO kyc(user,verdict,reason,fields,ts) VALUES(?,?,?,?,?)", (user, verdict, reason, fields_json, db.now()))
+    db.audit(user, "kyc_result", verdict)
 
 
 def kyc_queue() -> list[dict]:

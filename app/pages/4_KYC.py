@@ -3,7 +3,7 @@ import common as c
 import streamlit as st
 from core import consent, orders
 from core.kyc import messages as KM
-from core.kyc.pipeline import FILES, MAX_PAGES, MAX_UPLOAD_MB, load_specimen, look_up_gstin, look_up_udyam, open_upload, verify_files, verify_images
+from core.kyc.pipeline import FILES, MAX_PAGES, MAX_UPLOAD_MB, OcrUnavailable, load_specimen, look_up_gstin, look_up_udyam, open_upload, verify_files, verify_images
 t = c.setup("KYC")
 c.journey("kyc", t)
 st.subheader(t["kyc"])
@@ -56,6 +56,9 @@ if mode == "specimen":
 else:
     source = "upload"
     st.caption(W(f"Add all your documents together, in any order. We work out which is which. Photos or PDFs, up to {MAX_UPLOAD_MB} MB each. Files are read in memory and never stored.", f"अपने सभी दस्तावेज़ एक साथ, किसी भी क्रम में जोड़ें। कौन-सा क्या है, यह हम पहचान लेंगे। फ़ोटो या PDF, हर फ़ाइल {MAX_UPLOAD_MB} MB तक। फ़ाइलें केवल मेमोरी में पढ़ी जाती हैं, सहेजी नहीं जातीं।"))
+    the_order = orders.get(st.session_state["order_id"]) if st.session_state.get("order_id") else None
+    no_gst_needed = bool(the_order) and not orders.needs_gstin(the_order)
+    if no_gst_needed: st.info(W("Your plan doesn't need a GSTIN. If you don't have one, your signatory ID and address proof are enough.", "आपके प्लान के लिए GSTIN ज़रूरी नहीं। GSTIN न हो तो हस्ताक्षरकर्ता की ID और पते का प्रमाण काफ़ी है।"))
     nonce = st.session_state.setdefault("upload_nonce", 0)
     files = st.file_uploader(t["docs"], type=["png", "jpg", "jpeg", "pdf"], accept_multiple_files=True, key=f"up_all_{nonce}")
     WHY = {"too_big": W(f"is larger than we accept ({MAX_UPLOAD_MB} MB). Please send a smaller copy.", f"सीमा ({MAX_UPLOAD_MB} MB) से बड़ी है। कृपया छोटी कॉपी भेजें।"),
@@ -73,11 +76,16 @@ else:
 
 if st.button(t["verify"], type="primary", use_container_width=True, disabled=not (images or pages) or problems):
     bar, started = st.progress(0.0, t["reading"]), time.monotonic()
-    if mode == "specimen":
-        r = verify_images(images, progress=lambda k, n, total: bar.progress(n / total, W(f"Reading {KM.DOC_NAME[k]['en']}...", f"{KM.DOC_NAME[k]['hi']} पढ़ा जा रहा है...")))
-    else:
-        r = verify_files(pages, st.session_state.get("typed_gstin"), progress=lambda n, total: bar.progress(n / total, W(f"Reading file {n + 1} of {total}...", f"{total} में से फ़ाइल {n + 1} पढ़ी जा रही है...")))
-        st.session_state.pop("typed_gstin", None)
+    try:
+        if mode == "specimen":
+            r = verify_images(images, progress=lambda k, n, total: bar.progress(n / total, W(f"Reading {KM.DOC_NAME[k]['en']}...", f"{KM.DOC_NAME[k]['hi']} पढ़ा जा रहा है...")))
+        else:
+            r = verify_files(pages, st.session_state.get("typed_gstin"), progress=lambda n, total: bar.progress(n / total, W(f"Reading file {n + 1} of {total}...", f"{total} में से फ़ाइल {n + 1} पढ़ी जा रही है...")), gst_optional=no_gst_needed)
+            st.session_state.pop("typed_gstin", None)
+    except OcrUnavailable:  # nothing was read, so this says nothing about the documents
+        bar.empty()
+        st.error(W("We can't read documents right now. This isn't about your documents, and nothing has been saved. Please try again shortly.", "अभी हम दस्तावेज़ नहीं पढ़ पा रहे। इसका आपके दस्तावेज़ों से कोई लेना-देना नहीं, और कुछ सहेजा नहीं गया। कृपया थोड़ी देर बाद कोशिश करें।"))
+        st.stop()
     bar.empty(); images.clear(); pages.clear()
     st.session_state.pop("lookup", None)  # the result below replaces it, and an old "go ahead" must not sit above a different verdict
     consent.save_kyc(c.user(), r.verdict, r.reason, json.dumps(r.fields))

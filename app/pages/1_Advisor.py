@@ -1,7 +1,7 @@
 import sys; from pathlib import Path; sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import common as c
 import streamlit as st
-from core.advisor import State, turn, TXT
+from core.advisor import State, TXT, from_form, quick_replies, turn
 from core.rules import Profile
 t = c.setup("Advisor")
 st.subheader(t["advisor"])
@@ -19,7 +19,35 @@ if not st.session_state.chat:
     if st.session_state.ui_lang == "hi": s.profile.language = "hi"
 for role, msg in st.session_state.chat:
     with st.chat_message(role): st.markdown(msg)
-if prompt := st.chat_input("Type here / यहाँ लिखें"):
+hi_ui = st.session_state.ui_lang == "hi"
+chips = quick_replies(s)
+tapped = st.pills("जल्दी जवाब" if hi_ui else "Quick answers", [label for label, _ in chips], key=f"chip_{len(st.session_state.chat)}", label_visibility="collapsed") if chips else None
+with st.expander("AI और आपकी चैट" if hi_ui else "AI and your chat"):
+    st.caption("चैट पढ़ने और जवाब के शब्द लिखने के लिए हम Google Gemini का उपयोग करते हैं। यह भारत के बाहर प्रोसेस हो सकता है, और Google इसे अपने उत्पाद सुधारने में उपयोग कर सकता है। भेजने से पहले हम ID नंबर और संपर्क जानकारी हटा देते हैं, फिर भी कृपया इन्हें न लिखें। प्रोडक्ट और कीमत हमेशा हमारा कोड तय करता है।" if hi_ui else
+               "We use Google Gemini to read the chat and word replies. It may process text outside India, and Google may use it to improve its products. We remove ID numbers and contact details before sending, but please don't type them. Our code always decides products and prices.")
+    s.no_ai = not st.toggle("AI को मेरी चैट पढ़ने दें" if hi_ui else "Let AI read my chat", value=not getattr(s, "no_ai", False), key="ai_toggle", help="बंद करने पर भी सलाहकार काम करता रहेगा।" if hi_ui else "The advisor still works with this off.")
+if not (s.rec and s.rec.quote) and not s.handoff:  # for owners who'd rather not chat, and it needs no AI
+    say = (lambda en, h: h if hi_ui else en)
+    with st.expander(say("Prefer a short form?", "छोटा फ़ॉर्म भरना चाहेंगे?")):
+        with st.form("short_form"):
+            KINDS = {"kirana": say("Kirana store", "किराना"), "retailer": say("Other shop", "अन्य दुकान"), "salon": say("Salon", "सैलून"), "pharmacy": say("Pharmacy", "फ़ार्मेसी"), "clinic": say("Clinic", "क्लिनिक"), "ca_firm": say("CA firm", "सीए फर्म"), "office": say("Other office", "अन्य ऑफिस"), "coaching": say("Coaching centre", "कोचिंग"), "restaurant": say("Restaurant or cafe", "रेस्टोरेंट"), "manufacturer": say("Factory or workshop", "फैक्ट्री या वर्कशॉप"), "other": say("Something else", "कुछ और")}
+            NEED_LABELS = {"internet": say("Internet", "इंटरनेट"), "internet_for_upi_pos": say("Internet for UPI or card payments", "UPI या कार्ड के लिए इंटरनेट"), "uptime": say("Backup if the internet drops", "इंटरनेट बंद होने पर बैकअप"), "pos_billing": say("Billing", "बिलिंग"), "cloud_email": say("Business email", "बिज़नेस ईमेल"), "security": say("Device security", "डिवाइस सुरक्षा"), "cctv": say("CCTV", "सीसीटीवी"), "wifi": say("Wi-Fi for customers", "ग्राहकों के लिए वाई-फ़ाई"), "customer_messaging": say("WhatsApp for customers", "ग्राहकों के लिए WhatsApp"), "website": say("Website", "वेबसाइट"), "mobile_line": say("Mobile lines", "मोबाइल लाइन"), "dedicated_bandwidth": say("Leased line", "लीज़्ड लाइन")}
+            f_kind = st.selectbox(say("Your business", "आपका बिज़नेस"), list(KINDS), format_func=KINDS.get)
+            f_city = st.text_input(say("City", "शहर"))
+            f_tier = st.selectbox(say("If your city isn't a big one, what size is it?", "शहर छोटा हो तो उसका आकार?"), [0, 1, 2, 3], format_func=lambda x: {0: say("Not needed", "ज़रूरत नहीं"), 1: say("Metro", "मेट्रो"), 2: say("Large city", "बड़ा शहर"), 3: say("Smaller town", "छोटा शहर")}[x])
+            f_staff = st.number_input(say("People working there", "काम करने वाले लोग"), 1, 100000, 1)
+            f_sites = st.number_input(say("Locations", "लोकेशन"), 1, 10000, 1)
+            f_gst = st.selectbox(say("GSTIN", "GSTIN"), ["unsure", "yes", "no"], format_func=lambda x: {"unsure": say("Not sure", "पता नहीं"), "yes": say("Yes, active", "हाँ, सक्रिय"), "no": say("No", "नहीं")}[x])
+            f_needs = st.multiselect(say("What do you need?", "आपको क्या चाहिए?"), list(NEED_LABELS), format_func=NEED_LABELS.get)
+            f_fibre = st.checkbox(say("Fibre doesn't reach my site", "मेरी जगह फाइबर नहीं पहुँचता"))
+            if st.form_submit_button(say("Show my plan", "मेरा प्लान दिखाएँ"), use_container_width=True):
+                if not f_city.strip(): st.error(say("Please add your city.", "कृपया अपना शहर लिखें।"))
+                else:
+                    reply = from_form(s, f_kind, f_city, f_tier or None, int(f_staff), int(f_sites), {"unsure": None, "yes": True, "no": False}[f_gst], f_needs, f_fibre)
+                    st.session_state.chat += [("user", say("Filled in the short form", "छोटा फ़ॉर्म भरा")), ("assistant", reply)]
+                    st.rerun()
+typed = st.chat_input("Type here / यहाँ लिखें")
+if prompt := typed or dict(chips).get(tapped):
     with st.spinner("..."):
         reply = turn(s, prompt)
     # Only the redacted form of what the user typed is kept, so identifiers vanish from the transcript too.

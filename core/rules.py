@@ -38,11 +38,19 @@ class Profile(BaseModel):
     devices_iot: int = 1
     declined: list[str] = Field(default_factory=list)
     link_pref: str | None = None  # "fibre" or "5g" when the owner asked for one
+    no_fibre: bool = False  # the owner said fibre doesn't reach their site
+
+
+FIBRE_LINKS, LEASED_LINKS = {"P01", "P02", "P03"}, {"P05", "P06"}
 
 
 def _reason(p: Product, prof: Profile) -> tuple[str, dict] | None:
     if prof.city_tier not in p.tiers:
         return ("tier", {"tier": prof.city_tier, "tiers": p.tiers})
+    if prof.no_fibre and p.id in FIBRE_LINKS:
+        return ("no_fibre", {})
+    if prof.no_fibre and p.requires_one_of and not set(p.requires_one_of) - FIBRE_LINKS - LEASED_LINKS:
+        return ("needs_wired", {})  # works only on fibre or a leased line, and AirFiber is the only link left
     if p.requires_gstin and prof.has_gstin is not True:
         return ("gstin", {})
     if (prof.employees or 1) < p.min_employees:
@@ -59,11 +67,17 @@ def eligible(pid: str, prof: Profile) -> tuple[bool, tuple[str, dict] | None]:
 
 REASON_TEXT = {
     "en": {"tier": "not available in Tier {tier} cities", "gstin": "needs a GSTIN",
-           "employees": "needs at least {min} staff", "sites": "needs at least {min} locations"},
+           "employees": "needs at least {min} staff", "sites": "needs at least {min} locations",
+           "no_fibre": "fibre doesn't reach your site", "needs_wired": "only works on a wired connection, and fibre doesn't reach your site",
+           "not_on_leased": "doesn't work on a leased line", "needs_link": "needs an internet connection from us, and you said you don't want one"},
     "hi": {"tier": "टियर {tier} शहरों में उपलब्ध नहीं", "gstin": "इसके लिए GSTIN ज़रूरी है",
-           "employees": "कम से कम {min} कर्मचारी चाहिए", "sites": "कम से कम {min} लोकेशन चाहिए"},
+           "employees": "कम से कम {min} कर्मचारी चाहिए", "sites": "कम से कम {min} लोकेशन चाहिए",
+           "no_fibre": "आपकी जगह फाइबर नहीं पहुँचता", "needs_wired": "यह केवल वायर्ड कनेक्शन पर चलता है, और आपकी जगह फाइबर नहीं पहुँचता",
+           "not_on_leased": "यह लीज़्ड लाइन पर नहीं चलता", "needs_link": "इसके लिए हमारा इंटरनेट कनेक्शन चाहिए, और आपने कहा कि वह नहीं चाहिए"},
     "hinglish": {"tier": "Tier {tier} cities mein available nahi", "gstin": "iske liye GSTIN zaroori hai",
-                 "employees": "kam se kam {min} staff chahiye", "sites": "kam se kam {min} locations chahiye"},
+                 "employees": "kam se kam {min} staff chahiye", "sites": "kam se kam {min} locations chahiye",
+                 "no_fibre": "aapki site par fibre nahi pahunchta", "needs_wired": "yeh sirf wired connection par chalta hai, aur aapki site par fibre nahi pahunchta",
+                 "not_on_leased": "yeh leased line par nahi chalta", "needs_link": "iske liye hamara internet connection chahiye, aur aapne kaha woh nahi chahiye"},
 }
 
 
@@ -106,6 +120,9 @@ def _base_link(prof: Profile, needs: set[str]) -> tuple[str | None, list]:
         good, r = eligible(pid, prof)
         if not good: exc.append((pid, r))
         return good
+    if prof.no_fibre:  # never quote a line the owner told us can't reach them
+        if "dedicated_bandwidth" in needs and ok("P05"): return "P05", exc
+        return ("P04" if ok("P04") else None), exc
     if "dedicated_bandwidth" in needs:
         if (prof.employees or 0) >= 25 and "high_speed" in needs and ok("P06"): return "P06", exc
         if ok("P05"): return "P05", exc
@@ -124,7 +141,8 @@ def _base_link(prof: Profile, needs: set[str]) -> tuple[str | None, list]:
 def _link_reason(link: str, prof: Profile, needs: set[str], asked_for_link: bool, excluded: list) -> tuple | None:
     """Why this connection, not another. Only facts the rule actually used."""
     if link in ("P03", "P05", "P06"): return None  # the owner asked for this level of service
-    needing = next((catalogue()[NEED_PRODUCT[n]].name for n in needs if NEED_PRODUCT.get(n) in FIBRE_ONLY), None)
+    if prof.no_fibre and link == "P04": return ("no_fibre", {})
+    needing = next((catalogue()[NEED_PRODUCT[n]].name for n in needs if NEED_PRODUCT.get(n) in FIBRE_ONLY and eligible(NEED_PRODUCT[n], prof)[0]), None)
     if needing: return ("fibre_needed", {"name": needing})
     if "high_speed" in needs and any(e[0] == "P03" for e in excluded): return ("closest", {"reason_pid": "P03"})
     if prof.link_pref == "5g" and link == "P04": return ("asked_5g", {})
@@ -155,10 +173,18 @@ def recommend(prof: Profile) -> Recommendation:
             items[pid] = _qty(pid, prof); rec.why.setdefault(pid, n)
         else:
             rec.excluded.append((pid, r))
+    if "leased_line" in prof.current_setup:  # already on one, so these can't be added without a second connection
+        for p in [p for p in items if cat[p].requires_one_of and not set(cat[p].requires_one_of) & LEASED_LINKS]:
+            del items[p]; rec.excluded.append((p, ("not_on_leased", {})))
     has_link = bool(EXISTING_LINK & set(prof.current_setup))
     wants_link = needs & {"internet", "internet_for_upi_pos", "uptime", "failover", "dedicated_bandwidth", "high_speed", "sdwan"}
     implied = (needs - STANDALONE - wants_link) and not has_link
     deps = [p for p in items if cat[p].requires_one_of]
+    # An owner who refused a connection isn't sold one to hold up an add-on: say what it needs instead.
+    if "internet" in prof.declined and not has_link and not wants_link:
+        for p in deps:
+            del items[p]; rec.excluded.append((p, ("needs_link", {})))
+        deps, implied = [], False
     if wants_link or implied or deps:
         link, exc = _base_link(prof, needs)
         rec.excluded += [e for e in exc if e[0] not in {x[0] for x in rec.excluded}]
@@ -168,7 +194,15 @@ def recommend(prof: Profile) -> Recommendation:
             rec.why[link] = next((n for n in ("dedicated_bandwidth", "high_speed", "internet_for_upi_pos") if n in needs), "internet")
             if not wants_link and deps:
                 rec.auto_added[link] = deps[0]
+    # A leased line can't carry these, and a second connection beside it is never the smallest plan.
+    leased = set(items) & LEASED_LINKS or "leased_line" in prof.current_setup
+    if leased:
+        for p in [p for p in items if cat[p].requires_one_of and not set(cat[p].requires_one_of) & LEASED_LINKS]:
+            del items[p]; rec.excluded.append((p, ("not_on_leased", {})))
     rec.items = enforce_dependencies(items, prof)[0]
+    if any(q > MAX_QTY for q in rec.items.values()):  # too many to price on a screen: a person quotes this
+        rec.items, rec.handoff = {}, "large_account"
+        return rec
     if not rec.items and needs:
         rec.handoff = "no_eligible"
     if rec.items:
@@ -248,9 +282,29 @@ ADJUSTABLE_UNITS = {"per camera", "per line", "per user", "per device", "per veh
 MAX_QTY = 999
 
 
+NO_GST_OPTION = {"P15": "P18", "P14": "P18", "P13": "P18", "P12": "P07"}  # what still helps an owner who has no GSTIN
+CLOSEST = {"P03": ["P02"], "P05": ["P02", "P09"], "P06": ["P05"], "P10": ["P02"], "P21": ["P20"]}  # the nearest thing that does a similar job and needs less
+
+
+def closest_option(pid: str, prof: Profile, have: dict) -> list[str]:
+    """What to suggest instead of a product the rules blocked: only if every part of it is allowed, and it isn't already in the plan."""
+    option = CLOSEST.get(pid, [])
+    return option if option and all(eligible(p, prof)[0] for p in option) and not set(option) <= set(have) else []
+
+
+def remove_with_dependents(items: dict[str, int], pid: str) -> tuple[dict[str, int], list[str]]:
+    """Take a product out, and anything left with nothing to run on. Returns (what remains, what else had to go)."""
+    cat, left, gone = catalogue(), {k: v for k, v in items.items() if k != pid}, []
+    while True:
+        lost = [p for p in left if cat[p].requires_one_of and not set(cat[p].requires_one_of) & set(left)]
+        if not lost: return left, gone
+        gone += lost
+        left = {k: v for k, v in left.items() if k not in lost}
+
+
 def mentionable(rec: Recommendation) -> set[str]:
     """Products a reply may name without offering them: exclusions, and what the cheaper option rules out."""
-    return {e[0] for e in rec.excluded} | set(rec.alt_blocked)
+    return {e[0] for e in rec.excluded} | set(rec.alt_blocked) | {NO_GST_OPTION[e[0]] for e in rec.excluded if e[1][0] == "gstin" and e[0] in NO_GST_OPTION} | {p for e in rec.excluded for p in CLOSEST.get(e[0], [])}
 
 
 def alt_diff(rec: Recommendation) -> dict | None:

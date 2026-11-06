@@ -23,6 +23,30 @@ PLAN_ASK = re.compile(r"\bplan\b|price|cost|how much|again|show|summary|total|ki
 _PROBLEM = re.compile(r"keeps? (dropping|failing|going)|\bdrops?\b|dropping|\bslow\b|not working|doesn'?t work|complain|problem|\bissue|trouble|band ho|nahi chal|nahin chal|dikkat|pareshan|समस्या|दिक्कत|परेशान|बंद हो|नहीं चल", re.I)
 
 
+_DECLINE = re.compile(r"rather not|prefer not|won'?t (say|tell|share)|don'?t want to (say|tell|share)|not (telling|sharing)|can'?t (say|share)|nahi bat(ana|aunga|aungi|a sakta)|batana nahi|nahi dena|नहीं बताना|नहीं बताऊँगा|बताना नहीं|नहीं बता सकता", re.I)
+_DECLINE_SIZE, _DECLINE_GST, _DECLINE_CITY = re.compile(r"how (big|many)|size|staff|employees|people|कितने", re.I), re.compile(r"\bgst|जीएसटी", re.I), re.compile(r"\bcity\b|\bwhere\b|location|शहर|कहाँ", re.I)
+_INSIST_GST = re.compile(r"without (a |any |the )?gst|bina gst|gst ke bina|जीएसटी के बिना|बिना जीएसटी|(don'?t|do not) care.{0,30}(rule|gst)", re.I)
+COMPETITOR = re.compile(r"(what|how much) do (your |the |other )?competitors?|competitors? (charge|cost)\b.*\?|cheaper than (theirs|others|them|competitors?)|compare.{0,20}(competitor|airtel|jio|others)|दूसरी कंपनी", re.I)
+
+
+def declines(text: str) -> bool:
+    return bool(_DECLINE.search(text))
+
+
+def declined_fields(text: str, awaiting: str | None) -> set[str]:
+    """Which questions the owner is refusing: the ones they name, or else the one just asked."""
+    out = set()
+    if _DECLINE_SIZE.search(text): out |= {"employees", "locations"}
+    if _DECLINE_GST.search(text): out.add("has_gstin")
+    if _DECLINE_CITY.search(text): out.add("city")
+    if not out and awaiting: out.add("city" if awaiting == "city_tier" else awaiting)
+    return out
+
+
+def insists_without_gst(text: str) -> bool:
+    return bool(_INSIST_GST.search(text))
+
+
 def social(text: str) -> str | None:
     return next((k for k, rx in _SOCIAL.items() if rx.search(text)), None)
 
@@ -62,6 +86,46 @@ TALK = {
     "pick_later": {"en": "I'll pick the smallest plan that fits as soon as I have a bit more.", "hi": "थोड़ी और जानकारी मिलते ही मैं सबसे छोटा सही प्लान चुन दूँगा।", "hinglish": "Thodi aur jaankari milte hi main sabse chhota sahi plan chun dunga."},
     "got": {"en": "Got it", "hi": "समझ गया", "hinglish": "Samajh gaya"},
 }
+TALK.update({
+    "assume_size": {"en": "No problem. I'll work this out for one location and a small team, and you can correct that any time.", "hi": "कोई बात नहीं। मैं एक लोकेशन और छोटी टीम मानकर चलूँगा, आप कभी भी बदल सकते हैं।", "hinglish": "Koi baat nahi. Main ek location aur chhoti team maan kar chalunga, aap kabhi bhi badal sakte hain."},
+    "assume_gst": {"en": "No problem. I'll leave out anything that needs a GSTIN, and you can tell me later if you have one.", "hi": "कोई बात नहीं। जिनके लिए GSTIN चाहिए, उन्हें छोड़ दूँगा। बाद में बता सकते हैं।", "hinglish": "Koi baat nahi. Jinke liye GSTIN chahiye, unhe chhod dunga. Baad mein bata sakte hain."},
+    "need_city": {"en": "I only need the city, not your address, to check that we can serve you. I can't quote without it.", "hi": "सेवा की जाँच के लिए मुझे केवल शहर चाहिए, पता नहीं। इसके बिना मैं कीमत नहीं बता सकता।", "hinglish": "Service check karne ke liye mujhe sirf city chahiye, address nahi. Iske bina main price nahi bata sakta."},
+    "needs_gst": {"en": "{name} can't be sold without an active GSTIN. That rule is the same for every customer.", "hi": "{name} सक्रिय GSTIN के बिना नहीं बेचा जा सकता। यह नियम सभी ग्राहकों के लिए एक जैसा है।", "hinglish": "{name} active GSTIN ke bina nahi bech sakte. Yeh rule sabke liye same hai."},
+    "no_gst_option": {"en": "Without a GSTIN, {name} can still help.", "hi": "GSTIN के बिना भी {name} काम आ सकता है।", "hinglish": "GSTIN ke bina bhi {name} kaam aa sakta hai."},
+    "closest": {"en": "The closest we can offer is {names}.", "hi": "सबसे क़रीबी विकल्प {names} है।", "hinglish": "Sabse kareeb option {names} hai."},
+    "rules_fixed": {"en": "The eligibility rules are fixed, and neither of us can change them.", "hi": "पात्रता के नियम तय हैं, इन्हें न आप बदल सकते हैं न मैं।", "hinglish": "Eligibility ke rules fixed hain, inhe na aap badal sakte hain na main."},
+    "changed": {"en": "I've changed {what} from {a} to {b}. Tell me if that's wrong.", "hi": "मैंने {what} {a} से बदलकर {b} कर दिया है। ग़लत हो तो बताएँ।", "hinglish": "Maine {what} {a} se badalkar {b} kar diya hai. Galat ho to bataiye."},
+    "changed_gst": {"en": "I've updated your GST status. Tell me if that's wrong.", "hi": "मैंने आपका GST स्टेटस अपडेट कर दिया है। ग़लत हो तो बताएँ।", "hinglish": "Maine aapka GST status update kar diya hai. Galat ho to bataiye."},
+    "competitor": {"en": "I don't have other providers' prices, so I can't compare them fairly. You can compare with your current bill on the Quote page.", "hi": "मेरे पास दूसरी कंपनियों की कीमतें नहीं हैं, इसलिए मैं सही तुलना नहीं कर सकता। Quote पेज पर आप अपने मौजूदा बिल से तुलना कर सकते हैं।", "hinglish": "Mere paas doosri companies ke prices nahi hain, isliye main sahi comparison nahi kar sakta. Quote page par aap apne current bill se compare kar sakte hain."},
+})
+# Tappable answers: (label, what gets sent). They spend no AI quota and are easier on a phone.
+QUICK = {
+    "business_type": {"en": [("Kirana or shop", "shop"), ("Clinic", "clinic"), ("CA or office", "office"), ("Restaurant or cafe", "restaurant"), ("Factory", "factory")],
+                      "hi": [("किराना या दुकान", "दुकान"), ("क्लिनिक", "क्लिनिक"), ("सीए या ऑफिस", "ऑफिस"), ("रेस्टोरेंट", "रेस्टोरेंट"), ("फैक्ट्री", "फैक्ट्री")],
+                      "hinglish": [("Kirana ya dukan", "dukan"), ("Clinic", "clinic"), ("CA ya office", "office"), ("Restaurant", "restaurant"), ("Factory", "factory")]},
+    "needs": {"en": [("Internet", "internet"), ("UPI or billing", "billing"), ("Email", "email"), ("CCTV", "cctv"), ("WhatsApp", "whatsapp"), ("Not sure", "not sure")],
+              "hi": [("इंटरनेट", "इंटरनेट चाहिए"), ("UPI या बिलिंग", "बिलिंग चाहिए"), ("ईमेल", "ईमेल चाहिए"), ("सीसीटीवी", "सीसीटीवी चाहिए"), ("WhatsApp", "व्हाट्सएप चाहिए"), ("पता नहीं", "पता नहीं")],
+              "hinglish": [("Internet", "internet chahiye"), ("UPI ya billing", "billing chahiye"), ("Email", "email chahiye"), ("CCTV", "cctv chahiye"), ("WhatsApp", "whatsapp chahiye"), ("Pata nahi", "pata nahi")]},
+    "needs_confirm": {"en": [("Yes", "yes")], "hi": [("हाँ", "हाँ")], "hinglish": [("Haan", "haan")]},
+    "employees": {"en": [(("Just me" if n == 1 else f"{n} people"), str(n)) for n in (1, 2, 3, 5, 10, 25)], "hi": [(("सिर्फ़ मैं" if n == 1 else f"{n} लोग"), str(n)) for n in (1, 2, 3, 5, 10, 25)], "hinglish": [(("Sirf main" if n == 1 else f"{n} log"), str(n)) for n in (1, 2, 3, 5, 10, 25)]},
+    "locations": {"en": [(("1 location" if n == 1 else f"{n} locations"), str(n)) for n in (1, 2, 3, 5)], "hi": [(f"{n} लोकेशन", str(n)) for n in (1, 2, 3, 5)], "hinglish": [(("1 location" if n == 1 else f"{n} locations"), str(n)) for n in (1, 2, 3, 5)]},
+    "has_gstin": {"en": [("Yes", "yes"), ("No", "no"), ("Not sure", "not sure")], "hi": [("हाँ", "हाँ"), ("नहीं", "नहीं"), ("पता नहीं", "पता नहीं")], "hinglish": [("Haan", "haan"), ("Nahi", "nahi"), ("Pata nahi", "pata nahi")]},
+    "city_tier": {"en": [("Metro", "metro"), ("Large city", "large"), ("Smaller town", "small")], "hi": [("मेट्रो", "मेट्रो"), ("बड़ा शहर", "बड़ा"), ("छोटा शहर", "छोटा")], "hinglish": [("Metro", "metro"), ("Bada sheher", "bada"), ("Chhota sheher", "chhota")]},
+}
+CHANGE_WORDS = {"employees": ("your team size", "आपकी टीम का आकार", "aapki team size"), "locations": ("your number of locations", "आपकी लोकेशन की संख्या", "aapki locations ki sankhya"), "city": ("your city", "आपका शहर", "aapka city"), "business_type": ("your business type", "आपके बिज़नेस का प्रकार", "aapke business ka type")}
+REGIONAL_SCRIPTS = [("bn", "\u0980-\u09ff"), ("pa", "\u0a00-\u0a7f"), ("gu", "\u0a80-\u0aff"), ("ta", "\u0b80-\u0bff"), ("te", "\u0c00-\u0c7f"), ("kn", "\u0c80-\u0cff"), ("ml", "\u0d00-\u0d7f")]
+_SITES_DIFFER = re.compile(r"fib(?:re|er)\W+(?:\w+\W+){0,3}(?:only )?(?:some|few|one of|not all)|different (?:setup|plan|need|requirement)s? (?:for|at|in|per)\b|each (?:site|branch|outlet) needs? (?:a )?different|har (?:site|branch|outlet) (?:ka|ki|ke) alag", re.I)
+
+
+def script_language(text: str) -> str | None:
+    """The regional language a message is written in, from its script. Marathi shares Hindi's, so only the model can tell those apart."""
+    return next((code for code, block in REGIONAL_SCRIPTS if re.search(f"[{block}]", text)), None)
+
+
+def sites_differ(text: str) -> bool:
+    return bool(_SITES_DIFFER.search(text))
+
+
 PEOPLE = {"en": ("{n} person", "{n} people"), "hi": ("{n} व्यक्ति", "{n} लोग"), "hinglish": ("{n} log", "{n} log")}
 SITES = {"en": ("{n} location", "{n} locations"), "hi": ("{n} लोकेशन", "{n} लोकेशन"), "hinglish": ("{n} location", "{n} locations")}
 KIND = {"kirana": ("a kirana store", "किराना", "kirana"), "salon": ("a salon", "सैलून", "salon"), "pharmacy": ("a pharmacy", "फ़ार्मेसी", "pharmacy"), "clinic": ("a clinic", "क्लिनिक", "clinic"),

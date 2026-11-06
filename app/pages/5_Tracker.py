@@ -55,11 +55,21 @@ else:
     if o["stage"] == "Quote accepted":
         c.link("pages/4_KYC.py", label=t["kyc"], icon="🪪")
 if st.session_state.pop("paid_notice", False): st.success(t["paid"])
+if st.session_state.pop("pay_failed", False): st.error(W("The payment didn't go through. Nothing was charged. Please try again.", "भुगतान नहीं हो पाया। कोई पैसा नहीं कटा। कृपया दोबारा कोशिश करें।"))
+late = orders.delays(oid)
+if late and o["stage_index"] < 5:  # say what happened and the new date, before the owner has to call
+    d = late[-1]
+    why = {"fibre": W("Fibre can't reach your premises right now.", "अभी आपकी जगह फाइबर नहीं पहुँच पा रहा।"), "partner": W("Our installation partner needs more time.", "हमारे इंस्टॉलेशन पार्टनर को और समय चाहिए।"), "access": W("We couldn't get access to your site.", "हमें आपकी जगह तक पहुँच नहीं मिल पाई।")}[d["reason"]]
+    st.warning(W("**Your installation is delayed.** ", "**आपका इंस्टॉलेशन देर से होगा।** ") + why + W(f" New estimate: {day(orders.date.fromisoformat(d['new_date']))}, moved from {day(orders.date.fromisoformat(d['old_date']))}.", f" नया अनुमान: {day(orders.date.fromisoformat(d['new_date']))}, पहले {day(orders.date.fromisoformat(d['old_date']))} था।"))
+    if d["reason"] == "fibre" and orders.can_switch_to_airfiber(o):
+        air = catalogue()["P04"]
+        st.markdown(W(f"{air.name} is wireless and needs no fibre. To ask about switching, please talk to a person.", f"{air.name} वायरलेस है और इसमें फाइबर नहीं चाहिए। बदलने के लिए कृपया किसी व्यक्ति से बात करें।"))
 if o.get("technician"): st.markdown(f"**{t['tech']}:** {o['technician']}")
 
 done = {e["stage"]: e["ts"] for e in o["events"]}
 for s in orders.STAGES:
     when = orders.shown_time(done[s], o["created"]).strftime("%d %b, %I:%M %p") + " IST" if s in done else ""
+    if s == "Installed" and s not in done and o["stage_index"] >= 2: when = W("about ", "लगभग ") + day(max(d for _, d in orders.product_dates(o)))
     st.markdown(f"{'✅' if s in done else '⬜'} {names[s]}" + (f" · {when}" if when else ""))
 st.caption(W(f"This demo treats {day(TODAY)} as today.", f"यह डेमो {day(TODAY)} को आज की तारीख मानता है।"))
 
@@ -77,15 +87,28 @@ if 3 <= o["stage_index"] < 5 and verdict == "verified":
 cat = catalogue()
 with st.expander(W("What you ordered", "आपने क्या ऑर्डर किया")):
     for pid, n in json.loads(o["items"]).items():
-        st.markdown(f"- {cat[pid].name}" + (f" × {n}" if n > 1 else ""))
+        due = dict(orders.product_dates(o))[pid]
+        st.markdown(f"- {cat[pid].name}" + (f" × {n}" if n > 1 else "") + ("" if o["stage_index"] >= 5 else W(f" · expected about {day(due)}", f" · लगभग {day(due)} तक")))
     st.markdown(f"**₹{o['monthly']:,}** {t['per_month']}  \n{t['setup']}: ₹{o['setup']:,}  \n{t['contract']}: {o['contract']} {t['months']}")
+with st.expander(W("Updates sent to you", "आपको भेजे गए अपडेट")):
+    if consent.UPDATES in consent.active(c.user()):
+        for u in reversed(orders.updates_log(o)):
+            when = orders.shown_time(u["ts"], o["created"]).strftime("%d %b, %I:%M %p")
+            st.markdown(f"{when} · " + (W(f"Your installation is delayed. New estimate: {day(orders.date.fromisoformat(u['new_date']))}.", f"आपका इंस्टॉलेशन देर से होगा। नया अनुमान: {day(orders.date.fromisoformat(u['new_date']))}।") if u["stage"] == "delay" else W(f"Your order moved on: {names[u['stage']]}.", f"आपका ऑर्डर आगे बढ़ा: {names[u['stage']]}।")))
+        st.caption(W("A log for this prototype. No SMS or WhatsApp is sent.", "यह प्रोटोटाइप का लॉग है। कोई SMS या WhatsApp नहीं भेजा जाता।"))
+    else:
+        st.caption(W("You haven't turned on order updates. You can on the consent page.", "आपने ऑर्डर अपडेट चालू नहीं किए हैं। सहमति पेज पर कर सकते हैं।"))
 help_link()
 if not activated:
     with st.expander(t["demo"], expanded=st.session_state.get("demo_open", False)):  # stays open between taps
         st.caption(t["demo_note"])
         if orders.can_advance(o, verdict) and st.button(t["advance"]):
             orders.advance(oid); st.session_state.demo_open = True; st.rerun()
-        elif not orders.can_advance(o, verdict):
+        if orders.can_pay(o, verdict) and st.button(W("Simulate a failed payment", "असफल भुगतान का डेमो")):
+            st.session_state.pay_failed = True; st.session_state.demo_open = True; st.rerun()
+        if verdict == "verified" and 3 <= o["stage_index"] < 5 and not orders.delays(oid) and st.button(W("Simulate a fibre delay", "फाइबर में देरी का डेमो")):
+            orders.mark_delay(oid, "fibre"); st.session_state.demo_open = True; st.rerun()
+        if not orders.can_advance(o, verdict):
             st.caption(W("Nothing to move right now: this step needs you first.", "अभी आगे बढ़ाने को कुछ नहीं: इस चरण में पहले आपकी ज़रूरत है।"))
 with st.expander(t["your_consent"]):
     c.consent_panel(t)

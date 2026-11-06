@@ -47,6 +47,11 @@ for l in db.list_leads():
     rows.append({"When": l["ts"], "Why": REASON.get(l["reason"], l["reason"]), "Business": p.get("business_type"), "City": p.get("city"), "Staff": p.get("employees"), "Sites": p.get("locations"), "Needs": ", ".join(p.get("needs", []))})
 if rows: st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
 else: st.info("No hand-offs yet. They appear here when the advisor passes a customer to a person.")
+with st.expander("Audit log"):
+    st.caption("Every consent, withdrawal, KYC result and deletion: a session reference and a code, with no names, numbers or document details.")
+    log = db.audit_log()
+    if log: st.dataframe(pd.DataFrame([{"When": r["ts"], "Ref": "…" + r["actor"][-4:], "Action": r["action"], "Detail": r["detail"]} for r in log]), hide_index=True, use_container_width=True)
+    else: st.info("Nothing logged yet.")
 st.markdown("**Dropped leads to call first**")
 @st.cache_data(show_spinner="Scoring leads...")
 def scored(): return score_leads()

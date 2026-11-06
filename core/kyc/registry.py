@@ -70,3 +70,14 @@ def _lead_contacts() -> dict:
 def lead_contact(gstin: str) -> str | None:
     """Person named on the sales lead for this GSTIN. The only name to compare against for companies and LLPs."""
     return _lead_contacts().get(gstin)
+
+
+@lru_cache(maxsize=1)
+def _lead_udyam() -> dict:
+    with open(DATA / "smb_leads.csv", encoding="utf-8") as f:
+        return {r["gstin"]: r["udyam_number"] for r in csv.DictReader(f) if r["gstin"] and r["udyam_number"]}
+
+
+def udyam_on_file(gstin: str) -> bool:
+    """Whether this business has a Udyam record we could check, so a reviewer can settle a missing certificate quickly."""
+    return lookup_udyam(_lead_udyam().get(gstin, "")) is not None

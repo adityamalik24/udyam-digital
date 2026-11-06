@@ -46,6 +46,15 @@ Stretch goal: `Partner queue` lists advisor hand-offs and ranks leads lost to ou
 | Number lookup shows only a status | Enough to catch a cancelled GSTIN before any upload, without letting anyone read other businesses' details. The typed GSTIN stays in the session to compare with the certificate, is dropped after verifying, and is never stored |
 | Files are sorted by content, and we don't guess beyond one gap | One unrecognised file with one type missing is that type. Two different documents of one type go to a person, never a silent pick |
 | A PDF is drawn and read like a photo | Its hidden text layer can differ from what's printed, so it is never trusted |
+| Our price stays the catalogue midpoint, without adding GST | Team RNG's other build adds an assumed 18%. The data doesn't state tax, so the Quote page says plainly that GST isn't confirmed |
+| K05 stays `needs_review` | The brief lists the Udyam certificate as required. The other build verifies K05 from the registry. We keep it with a person and tell them the registry has a record, so it's quick to settle |
+| Three KYC verdicts only | The project rules ask for `verified`, `needs_review` and `rejected`. The other build's extra retake and confirm states are covered by plain next steps |
+| A second connection is never added to hold up an add-on on a leased line | It wouldn't be the smallest plan. The add-on is listed as not included, with the reason |
+| Lead score leaves out language | A lead shouldn't rank lower for the language its owner speaks. Accuracy doesn't change (AUC 0.71) |
+| Chat uses a notice and an off switch rather than an unticked box | Unlike KYC, owners type this themselves, and a box before the first message would stop them starting. A lawyer should confirm this |
+| Gemini reads through a forced tool call, and writes around `{{slots}}` | Learned from Team RNG's other build. The schema constrains what it can return, each value is checked alone, and it can't type a price or product name in any language |
+| What code reads directly beats what the model reads | The model only fills gaps and spots intent, so a misreading can't override a stated fact |
+| Regional languages run only with Gemini on | Replies are translated around slots, so numbers stay exact. Without Gemini the owner is told plainly to use English or Hindi |
 | Streamlit pinned to the tested version | `use_container_width` is due for removal, so an unpinned rebuild could break every page |
 | "Clinic wants email" adds a link and Endpoint Security | Our scenario 2. Goes beyond rule 4 (stated needs only): all 138 professional-office customers with email also bought a link, 67 bought security. Saying "we already have internet" removes the link |
 | CCTV and similar still add a link when the owner has one | The catalogue requires a listed product in the same bundle, and we can't confirm a link from another provider |

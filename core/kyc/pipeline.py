@@ -1,10 +1,13 @@
 """Applicant documents to verdict. Images stay in memory, are never persisted, never go to an LLM."""
 import io
-import pypdfium2
+import struct
+import subprocess
+import sys
+from pathlib import Path
 from PIL import Image
 from ..catalogue import DATA
 from .checks import check_applicant, Result
-from .ocr import extract, parse
+from .ocr import OcrUnavailable, extract, parse  # noqa: F401 (pages catch OcrUnavailable from here)
 from .validators import gstin_problem, mask, valid_udyam
 from . import registry
 from . import messages as M
@@ -40,17 +43,25 @@ def load_specimen(applicant: str) -> dict:
 
 MAX_UPLOAD_MB, MAX_PIXELS = 10, 40_000_000  # bigger than any phone photo; a larger file is refused before it is decoded
 MAX_PAGES = 8      # across everything sent at once: 4 documents, with room for a repeat or a back page
+PDF_SECONDS = 25   # a file that takes longer than this to draw is refused
 PDF_DPI = 200      # higher made small print worse in testing: pages are upscaled past what they hold
 
 
 def _pdf_pages(data: bytes) -> list[Image.Image]:
-    """Draw each page and read it with OCR like any photo. A PDF's text layer is never trusted: it can differ from what's shown."""
-    pdf = pypdfium2.PdfDocument(data)
+    """Each page drawn in its own process with a time limit, then read with OCR like any photo.
+    A PDF's text layer is never trusted: it can differ from what's shown."""
     try:
-        if len(pdf) > MAX_PAGES: raise OverflowError
-        return [page.render(scale=min(PDF_DPI / 72, 4000 / max(page.get_size()))).to_pil().convert("RGB") for page in pdf]
-    finally:
-        pdf.close()
+        done = subprocess.run([sys.executable, str(Path(__file__).with_name("pdf_worker.py")), str(PDF_DPI), str(MAX_PAGES)], input=data, capture_output=True, timeout=PDF_SECONDS)
+    except subprocess.TimeoutExpired as e:
+        raise ValueError("PDF took too long") from e
+    if done.returncode == 3: raise OverflowError
+    if done.returncode != 0: raise ValueError("PDF could not be drawn")
+    pages, out, at = [], done.stdout, 0
+    while at < len(out):
+        size = struct.unpack(">I", out[at:at + 4])[0]; at += 4
+        pages.append(Image.open(io.BytesIO(out[at:at + size])).copy()); at += size
+    if not pages: raise ValueError("PDF has no pages")
+    return pages
 
 
 def open_upload(file) -> tuple[list[Image.Image], str | None]:
@@ -65,7 +76,7 @@ def open_upload(file) -> tuple[list[Image.Image], str | None]:
         return [img.copy()], None
     except OverflowError:
         return [], "too_many"
-    except (OSError, ValueError, SyntaxError, Image.DecompressionBombError, pypdfium2.PdfiumError):
+    except (OSError, ValueError, SyntaxError, struct.error, Image.DecompressionBombError):
         return [], "bad_file"
 
 
@@ -90,10 +101,10 @@ def _content(ex) -> dict:
     return {k: v for k, v in ex.fields.items() if k != "gstin_reads"}
 
 
-def verify_files(images: list, entered_gstin: str | None = None, progress=None) -> Result:
+def verify_files(images: list, entered_gstin: str | None = None, progress=None, gst_optional: bool = False) -> Result:
     """Files in any order, of any type mix: sort them, then run the same checks as everything else."""
     docs, duplicates, unused = sort_documents(images, progress)
-    r = check_applicant(docs, entered_gstin, duplicates=duplicates)
+    r = check_applicant(docs, entered_gstin, duplicates=duplicates, gst_optional=gst_optional)
     r.unused = unused
     return r
 

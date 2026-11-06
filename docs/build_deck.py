@@ -68,7 +68,7 @@ def bars(s, x, y, w, h, cats, vals, title, kind=XL_CHART_TYPE.BAR_CLUSTERED, fmt
 # 1 Title (template slide 1)
 s1 = p.slides[0]
 text(s1, .65, 2.75, 3.6, .5, "Udyam Digital", 26, WHITE, True)
-text(s1, .65, 3.3, 3.5, .9, ["A small business goes digital in one sitting, on a phone", "Enterprise Track A: business case"], 13, WHITE)
+text(s1, .65, 3.3, 3.5, .9, ["A small business goes digital in one sitting, on a phone", "Team RNG. Enterprise Track A: business case"], 13, WHITE)
 
 # 2 Problem
 s = slide("Only 7.4% of small-business leads activate, at ₹15,053 each")
@@ -96,7 +96,7 @@ table(s, .5, .9, 8.8, [["Segment","Leads","Activate","₹/month","6-mo churn","C
  ["Micro retail and services","2,709","4.1%","2,505","22.7%","₹20,007","8.0 mo"]], [2.6,.7,.9,.9,1,1.6,.9], 12, .38)
 text(s, .5, 3,8.8,1.7, ["Professional offices: largest high-value pool, cheapest to acquire, and the journey runs fully self-serve.",
  "Multi-site and manufacturers: highest value, but they need specialists. The advisor qualifies, then hands off with a summary.",
- "Micro: 54% of leads, unprofitable with a salesperson. Serve them digital-only, and keep them out of field-sales queues."], 13)
+ "Micro: 54% of leads. Field visits here took 25.8% of all spend for 7.3% of activations (₹53,026 each), so serve them digital-only."], 13)
 
 # 5 Bundles
 def m(items):
@@ -113,32 +113,32 @@ text(s, .5, 3.6, 8.8, 1, ["Each price is the midpoint of the catalogue range; ac
 s = slide("A working journey where code, not the LLM, decides")
 for i,(h,b) in enumerate([("Advisor","English, Hindi, Hinglish. At most 6 questions, no upsell"),("Quote","One price, add-on toggles, dependencies added with a note"),("Smart KYC","Consent first. OCR, GSTIN checksum and mock registry checks"),("Tracker","7 stages with timestamps, reschedule, consent withdrawal")]):
     card(s, .5+i*2.23, .9, 2.1, 1.55, h, b, 16, 12)
-text(s, .5, 2.65, 8.8, 2, ["The LLM only fills profile gaps and rewords replies. Any product, amount or promise that isn't from the rules engine is discarded.",
- "Tested: 158 of 158 advisor scenarios we wrote pass (not the judges' set). All 12 KYC applicants match our manual review of the images and registries: 5 verified, 5 needs review, 2 rejected.",
+text(s, .5, 2.65, 8.8, 2, ["The LLM reads messages and words replies around slots that code fills, so it can't type a price or product name in any language.",
+ "Tested on our own cases, not the judges': 238 of 238 advisor scenarios pass in English, Hindi and Hinglish, and no eligibility or price breaks across 303,408 business profiles. All 12 KYC applicants match our manual review (5 verified, 5 needs review, 2 rejected), and 0 of 192 forged certificates verified.",
  "Identifiers are stripped from chat before storage. Document images stay in memory and never reach the LLM."], 13)
 
 # 7 Signals
 s = slide("Customers who chase status more churn more")
 bars(s, .5, .8, 4.6, 3.85, ["1","2","3","4","5"], [5.9,14.3,11.7,20.0,27.9], "6-month churn (%) by number of status-chase calls", XL_CHART_TYPE.COLUMN_CLUSTERED, "0.0", vmax=35)
 text(s, 5.3, .95, 4, 3.7, ["NPS also falls from 7.5 to 6.0 across the same range (p<0.001). This is a correlation, so a pilot should test it.",
- "Referral converts best (14.8%) at ₹4,099, but churn is 24.6% against 9.6% for field sales. The churn gap isn't significant across sources (p=0.13), so watch it.",
+ "56 of 368 activated bundles broke a catalogue rule, and 22 activations sit on a cancelled or suspended GSTIN. Enforcing rules in code stops both.",
+ "Referral converts best (14.8%), WhatsApp campaigns worst (2.8%).",
  "Hotspot users churn at 24.7% against 8.3% on business broadband (p=0.002).",
- "GSTIN: 9.6% activate against 2.0% without.",
- "WhatsApp campaigns: 2.8%, the lowest of any source."], 13)
+ "GSTIN: 9.6% activate against 2.0% without, and the gap holds within micro (6.3% against 1.6%)."], 12)
 
 # 8 Value
 s = slide("Recovering half of process drops takes activation to about 11%")
 bars(s, .5, .8, 4.8, 3.85, ["Today","No visit needed","Instant quote","Faster KYC"], [368,77,82,39], "Activations per quarter, and what each fix adds")
 card(s, 5.5, .85, 3.8, 1.15, "368 to 566", "activations per quarter, from the same 5,000 leads (7.4% to 11.3%)")
-card(s, 5.5, 2.15, 3.8, 1.15, "Assumption", "50% recovery is our planning estimate, not data. Recovered leads convert at observed downstream rates", 16, 12)
+card(s, 5.5, 2.15, 3.8, 1.15, "Assumption", "50% recovery is our estimate, not data. 30% gives 487 activations and 70% gives 645", 16, 12)
 card(s, 5.5, 3.45, 3.8, 1.15, "To validate", "Pilot measures real recovery, and our build and run costs still need to be set against it", 16, 12)
 
 # 9 Rollout + metrics
 s = slide("Roll out in three steps, and measure five numbers")
-table(s, .5, .88, 4.2, [["Phase","Scope"],["1. Pilot","Professional offices, Tier 1, Hindi and English"],["2. Extend","Micro digital-only, Tier 2, regional languages"],["3. Assisted","Multi-site and manufacturers via specialists"]], [1,3], 12, .5)
-text(s, .5, 3.05, 4.2, 1.7, ["Field force: complex accounts and advisor hand-offs, which arrive with a saved summary. Small tickets go digital.","Partners: keep credit for leads they bring, run installs, and call a score-ranked queue of dropped leads."], 13)
+table(s, .5, .88, 4.2, [["Phase","Scope"],["1. Pilot","Professional offices, Tier 1, Hindi and English, starting with Accel mobile customers (9.2% activate)"],["2. Extend","Micro digital-only, Tier 2, and regional languages, starting with Tamil and Punjabi (about 4%)"],["3. Assisted","Multi-site and manufacturers via specialists"]], [1,3], 12, .5)
+text(s, .5, 3.3, 4.2, 1.45, ["Field force: off micro and onto complex accounts and hand-offs, which arrive with a saved summary.","Partners: keep credit for their leads, run installs, and call a ranked queue of dropped leads (the top tenth activate at 2.2 times the average)."], 13)
 table(s, 4.95, .88, 4.35, [["Metric","Now","Target"],["Lead to activation","7.4%","11%"],["Days to activate","17.6","10"],["Status chases","3.0","1 or fewer"],["Cost per activation","₹15,053","₹10,000"],["Micro 6-month churn","22.7%","15%"]], [2.3,1,1], 12, .42)
-text(s, 4.95, 3.55, 4.35, .8, "Targets are our proposals, to be reset after the pilot.", 12, MUTE)
+text(s, 4.95, 3.55, 4.35, .8, "Targets are our proposals. Keep at zero: rule-breaking bundles (56 today), activations on an inactive GSTIN (22), and false KYC rejections.", 12, MUTE)
 
 # 10 Risks
 s = slide("Main risks, and what we are asking for")

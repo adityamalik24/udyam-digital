@@ -15,11 +15,11 @@ calls = {"ok": 0, "failed": 0}
 raw_call, raw_turn, slow = llm._call, rs.turn, []
 
 
-def counted(system, user, c=None):
+def counted(system, user, c=None, tool=None):
     if time.time() < llm._paused_until:
         calls["failed"] += 1
         return None
-    out = raw_call(system, user, c)
+    out = raw_call(system, user, c, tool)
     calls["ok" if out else "failed"] += 1
     return out
 
@@ -37,7 +37,7 @@ def paced(s, text):
 llm._call, rs.turn = counted, paced
 assert llm.client() is not None, "no LLM_API_KEY set"
 fails = 0
-scs = yaml.safe_load(pathlib.Path(__file__).with_name("advisor_live.yaml").read_text(encoding="utf-8"))
+scs = yaml.safe_load(pathlib.Path(__file__).with_name(os.environ.get("LIVE_SET", "advisor_live.yaml")).read_text(encoding="utf-8"))
 scs = [sc for sc in scs if not ONLY or sc["id"] in ONLY]
 for sc in scs:
     errs, _ = rs.run(sc)
@@ -45,3 +45,4 @@ for sc in scs:
     print("PASS" if not errs else f"FAIL {errs}", sc["id"], sc["name"], flush=True)
 slow.sort()
 print(f"\n{len(scs) - fails}/{len(scs)} passed; LLM calls ok {calls['ok']}, failed or skipped {calls['failed']}; turn time median {slow[len(slow) // 2]:.1f}s, slowest {slow[-1]:.1f}s")
+print(f"Replies worded by Gemini: {llm.stats['worded']}; guard refusals: {llm.stats['refused']}; fell back to our template: {llm.stats['template']}")

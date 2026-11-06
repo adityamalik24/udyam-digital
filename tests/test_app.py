@@ -81,15 +81,16 @@ def test_chat_from_before_a_deploy_does_not_crash():
 
 
 def test_new_chat_button_resets_the_chat_and_keeps_the_language():
+    new_chat = lambda p: next(b for b in p.button if b.label in ("New chat", "नई चैट"))
     at = AppTest.from_file(str(ROOT / "app/pages/1_Advisor.py"), default_timeout=30).run()
-    assert not at.button  # nothing to clear yet
+    assert not [b for b in at.button if b.label == "New chat"]  # nothing to clear yet
     at.chat_input[0].set_value("Clinic in Delhi, 6 staff, one location, have GSTIN, want email").run()
     assert at.session_state["advisor"].rec.quote
-    at.button[0].click().run(); assert not at.exception
+    new_chat(at).click().run(); assert not at.exception
     s = at.session_state["advisor"]
     assert s.rec is None and s.profile.business_type is None and len(at.session_state["chat"]) == 1
     at.chat_input[0].set_value("मेरा क्लिनिक है").run()
-    at.button[0].click().run(); assert not at.exception
+    new_chat(at).click().run(); assert not at.exception
     assert at.session_state["ui_lang"] == "hi" and at.session_state["advisor"].profile.language == "hi"
     assert "नमस्ते" in at.session_state["chat"][0][1]
 
@@ -675,3 +676,105 @@ def test_old_lookup_message_does_not_sit_above_the_result():
     p = _kyc_page("up3"); _look(p, "27XUIXG0767D1ZP"); assert any("is active" in x.value for x in p.success)
     p.selectbox[0].set_value("K01").run(); next(b for b in p.button if b.label == "Verify").click().run(); assert not p.exception
     assert not any("is active" in x.value for x in p.success) and any("Rejected" in e.value for e in p.error)
+
+
+def test_advisor_page_shows_the_ai_notice_tappable_answers_and_a_working_toggle():
+    a = AppTest.from_file(str(ROOT / "app/pages/1_Advisor.py"), default_timeout=30).run(); assert not a.exception
+    assert any("Google Gemini" in x.value for x in a.caption) and a.toggle[0].value
+    a.chat_input[0].set_value("clinic").run(); assert not a.exception
+    pills = a.get("button_group"); assert pills and "Internet" in str(pills[0].proto)
+    a.toggle[0].set_value(False).run(); assert a.session_state["advisor"].no_ai is True
+
+
+def test_tracker_shows_a_delay_with_its_reason_and_the_airfiber_option():
+    from core import orders
+    oid = _ready_order("d1", "Installation scheduled")
+    t = _page("5_Tracker.py", "d1", order_id=oid); assert not t.warning
+    next(b for b in t.button if b.label == "Simulate a fibre delay").click().run(); assert not t.exception
+    msg = " ".join(w.value for w in t.warning); assert "delayed" in msg and "Fibre can't reach" in msg
+    assert "AirFiber" in _words(t) and not [b for b in t.button if b.label == "Simulate a fibre delay"]
+    next(b for b in t.button if b.label == "Advance stage").click().run(); next(b for b in t.button if b.label == "Advance stage").click().run()
+    assert orders.get(oid)["stage"] == "Installed" and not [w for w in t.warning if "delayed" in w.value]
+
+
+def test_a_failed_payment_says_so_charges_nothing_and_can_be_retried():
+    from core import orders
+    oid = _ready_order("d2", "KYC verified")
+    t = _page("5_Tracker.py", "d2", order_id=oid)
+    next(b for b in t.button if b.label == "Simulate a failed payment").click().run(); assert not t.exception
+    assert any("Nothing was charged" in e.value for e in t.error) and orders.get(oid)["stage"] == "KYC verified"
+    next(b for b in t.button if "Pay first" in b.label).click().run(); assert orders.get(oid)["stage"] == "Payment done"
+
+
+def test_consent_panel_shows_what_we_hold():
+    from core import consent
+    consent.grant("d3", consent.KYC, "en"); consent.save_kyc("d3", "verified", "ok", '{"gstin_masked": "•••1ZP"}')
+    c = _page("3_Consent.py", "d3")
+    assert any("What we hold" in m.value and "•••1ZP" in m.value and "No document images" in m.value for m in c.markdown)
+
+
+def test_quote_page_is_open_about_gst():
+    assert any("GST is included" in x.value for x in _quote(CLINIC).caption)
+
+
+def test_kyc_page_explains_an_ocr_outage_and_saves_nothing(monkeypatch):
+    import pytesseract
+    from core import consent
+    def gone(*a, **k): raise pytesseract.TesseractNotFoundError()
+    monkeypatch.setattr(pytesseract, "image_to_string", gone)
+    p = _kyc_page("o1"); next(b for b in p.button if b.label == "Verify").click().run(); assert not p.exception
+    assert any("can't read documents right now" in e.value for e in p.error) and consent.latest_kyc("o1") is None
+
+
+def test_kyc_page_tells_a_no_gstin_plan_what_it_needs():
+    from core import orders
+    from core.pricing import price
+    oid = orders.create("o2", {"P04": 1}, price({"P04": 1})); p = _kyc_page("o2", order_id=oid); p.radio[0].set_value("upload").run()
+    assert any("doesn't need a GSTIN" in i.value for i in p.info)
+    oid = orders.create("o3", {"P15": 1}, price({"P15": 1})); p = _kyc_page("o3", order_id=oid); p.radio[0].set_value("upload").run()
+    assert not p.info
+
+
+def test_quote_line_can_be_removed_with_what_depends_on_it_and_put_back():
+    q = _quote("Clinic in Delhi, 6 staff, one location, have GSTIN, want internet that stays up and email"); before = _big(q)
+    assert "1,099" in " ".join(m.value for m in q.markdown) or "Fibre" in " ".join(m.value for m in q.markdown)
+    fibre = next(b for b in q.button if b.label.startswith("Remove Biz Fibre")); fibre.click().run(); assert not q.exception
+    assert any("also came out" in i.value and "Failover" in i.value for i in q.info) and _big(q) != before
+    assert any("less than the plan I recommended" in x.value for x in q.caption) and not [b for b in q.button if "cheaper" in b.label]
+    next(b for b in q.button if b.label == "Put back what I removed").click().run(); assert _big(q) == before
+
+
+def test_short_form_on_the_page_gives_a_plan_and_needs_a_city():
+    a = AppTest.from_file(str(ROOT / "app/pages/1_Advisor.py"), default_timeout=30).run()
+    next(b for b in a.button if b.label == "Show my plan").click().run(); assert any("add your city" in e.value for e in a.error) and not a.session_state["advisor"].rec
+    next(t for t in a.text_input if t.label == "City").set_value("Delhi")
+    next(s for s in a.selectbox if s.label == "Your business").set_value("clinic")
+    next(n for n in a.number_input if n.label == "People working there").set_value(6)
+    next(m for m in a.multiselect if m.label == "What do you need?").set_value(["cloud_email"])
+    next(b for b in a.button if b.label == "Show my plan").click().run(); assert not a.exception
+    assert a.session_state["advisor"].rec.quote and "smallest plan" in a.session_state["chat"][-1][1] and not [e for e in a.expander if e.label == "Prefer a short form?"]
+
+
+def test_tracker_shows_product_dates_and_an_updates_log_only_with_consent():
+    from core import consent
+    oid = _ready_order("o4", "Installation scheduled")
+    t = _page("5_Tracker.py", "o4", order_id=oid); assert "expected about" in _words(t) and "haven't turned on" in _words(t) and "about " in _words(t)
+    consent.grant("o4", consent.UPDATES, "en"); t.run()
+    assert "Your order moved on" in _words(t) and "No SMS or WhatsApp is sent" in _words(t)
+
+
+def test_withdrawing_shows_its_effect_and_partner_queue_shows_the_audit_log():
+    from core import consent
+    consent.grant("o5", consent.KYC, "en"); c = _page("3_Consent.py", "o5")
+    assert any("deletes your saved KYC result" in x.value for x in c.caption)
+    q = AppTest.from_file(str(ROOT / "app/pages/6_Partner_Queue.py"), default_timeout=60).run(); assert not q.exception
+    assert any("consent_granted" in d.value.astype(str).to_string() for d in q.dataframe)
+
+
+def test_every_label_exists_in_both_languages():
+    import common
+    from core import understand as U
+    assert set(common.L["en"]) == set(common.L["hi"])
+    for key, text in U.TALK.items(): assert {"en", "hi", "hinglish"} <= set(text), key
+    from core.advisor import TXT, Q
+    for key, text in list(TXT.items()) + list(Q.items()): assert "en" in text, key

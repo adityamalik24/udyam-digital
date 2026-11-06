@@ -5,7 +5,7 @@ from core import consent, orders
 from core.advisor import why_text, trade_text
 from core.catalogue import catalogue
 from core.pricing import price, first_payment, contract_total, summary_text
-from core.rules import apply_addons, eligible, reason_text, ADJUSTABLE_UNITS, MAX_QTY
+from core.rules import apply_addons, eligible, reason_text, remove_with_dependents, ADJUSTABLE_UNITS, MAX_QTY
 t = c.setup("Quote")
 c.journey("quote", t)
 st.subheader(t["quote"])
@@ -27,8 +27,15 @@ price_box, notes_box, alt_box, lines_box = st.container(), st.container(), st.co
 plan_id = tuple(sorted(rec.items.items()))
 if st.session_state.get("plan_id") != plan_id:
     st.session_state.plan_id, st.session_state.use_alt, st.session_state.saved_qty, st.session_state.has_gstin_tick = plan_id, False, {}, False
+    st.session_state.removed_lines = []
 use_alt = bool(st.session_state.use_alt and rec.alternative)
 base = rec.alternative if use_alt else rec.items
+# Lines the owner took out, and anything left with nothing to run on. A connection can't be removed if that would empty the plan.
+also_gone = {}
+for pid in st.session_state.setdefault("removed_lines", []):
+    if pid in base:
+        base, gone = remove_with_dependents(base, pid)
+        for g in gone: also_gone[g] = pid
 
 prof = s.profile
 selected = set(st.session_state.get("addons", set()))
@@ -60,11 +67,19 @@ with price_box:
     m4, m5 = st.columns(2)
     m4.metric(W("First payment", "पहला भुगतान"), f"₹{first_payment(q):,}", help=W("First month plus setup, due after KYC.", "पहला महीना और सेटअप, KYC के बाद।"))
     m5.metric(W(f"Total over {q.contract} months", f"{q.contract} महीनों में कुल"), f"₹{contract_total(q):,}")
-    st.caption(W(f"Usually installed in about {q.install_days} days. This is an estimate; the real date appears in your tracker.", f"इंस्टॉलेशन में आमतौर पर लगभग {q.install_days} दिन लगते हैं। यह अनुमान है; असली तारीख ट्रैकर में दिखेगी।"))
+    st.caption(W("Catalogue prices. Our data doesn't say whether GST is included, so a real bill should confirm this.", "ये कैटलॉग की कीमतें हैं। हमारे डेटा में यह नहीं बताया गया कि GST शामिल है या नहीं, इसलिए असली बिल में इसकी पुष्टि होनी चाहिए।"))
+    st.caption(W(f"Usually installed in about {q.install_days} {'day' if q.install_days == 1 else 'days'}. This is an estimate; the real date appears in your tracker.", f"इंस्टॉलेशन में आमतौर पर लगभग {q.install_days} दिन लगते हैं। यह अनुमान है; असली तारीख ट्रैकर में दिखेगी।"))
 
 with notes_box:
     for a, b in res["added"].items():
         st.info(t["needs"].format(a=cat[a].name, b=cat[b].name))
+    for lost, because in also_gone.items():
+        st.info(W(f"{cat[lost].name} also came out, because it needs {cat[because].name}.", f"{cat[lost].name} भी हट गया, क्योंकि इसके लिए {cat[because].name} चाहिए।"))
+    if st.session_state.removed_lines:
+        gap = q.monthly - (rec.alt_quote.monthly if use_alt else rec.quote.monthly)
+        if gap: st.caption(W(f"₹{abs(gap):,} a month {'more' if gap > 0 else 'less'} than the plan I recommended.", f"सुझाए गए प्लान से हर महीने ₹{abs(gap):,} {'ज़्यादा' if gap > 0 else 'कम'}।"))
+        if st.button(W("Put back what I removed", "हटाई गई चीज़ें वापस लाएँ"), use_container_width=True):
+            st.session_state.removed_lines = []; st.rerun()
     for gone, link in res["removed"].items():
         st.info(W(f"{cat[link].name} replaces {cat[gone].name}, so you don't pay for two connections.", f"{cat[link].name} ने {cat[gone].name} की जगह ली है, ताकि आपको दो कनेक्शन का भुगतान न करना पड़े।"))
     base_contract = price(base).contract
@@ -72,7 +87,7 @@ with notes_box:
         st.info(W(f"These changes make the minimum contract {q.contract} months (it was {base_contract}).", f"इन बदलावों से न्यूनतम अनुबंध {q.contract} महीने हो गया है (पहले {base_contract} था)।"))
 
 with alt_box:
-    if rec.alternative:
+    if rec.alternative and not st.session_state.removed_lines:
         if use_alt:
             st.warning(W("**You're on the cheaper option.**", "**आप सस्ते विकल्प पर हैं।**") + "\n\n" + trade_text(rec, lang))
             if st.button(W("Back to the recommended plan", "सुझाए गए प्लान पर वापस जाएँ"), use_container_width=True):
@@ -91,6 +106,8 @@ with lines_box:
         if why: st.caption(W("Why: ", "क्यों: ") + why)
         if l.unit in ADJUSTABLE_UNITS:
             st.number_input(UNIT[l.unit], 1, MAX_QTY, l.qty, key=f"qty_{l.product_id}")
+        if len(q.lines) > 1 and l.product_id in base and st.button(W(f"Remove {l.name}", f"{l.name} हटाएँ"), key=f"rm_{l.product_id}"):
+            st.session_state.removed_lines.append(l.product_id); st.rerun()
 
 with st.expander(W("Compare with your current bill", "अपने मौजूदा बिल से तुलना करें")):
     now = st.number_input(W("What do you pay per month now for phone and internet? (₹)", "अभी फ़ोन और इंटरनेट पर हर महीने कितना देते हैं? (₹)"), 0, 10000000, 0, step=100, key="current_bill")  # never stored

@@ -355,3 +355,65 @@ def test_kyc_code_never_touches_the_llm():
 def test_the_stated_upload_limit_is_the_real_one():
     from core.kyc.pipeline import MAX_UPLOAD_MB
     assert f"maxUploadSize = {MAX_UPLOAD_MB}" in (pathlib.Path(__file__).parents[1] / ".streamlit/config.toml").read_text()
+
+
+def test_k05_stays_with_a_person_but_tells_them_the_registry_can_settle_it(results):
+    r = results["K05"]
+    assert r.verdict == "needs_review" and "udyam_on_file" in {c for c, _ in r.checks} and "UDYAM-" not in str(r.fields)
+    assert "udyam_on_file" not in {c for k, x in results.items() if k != "K05" for c, _ in x.checks}
+
+
+# --- From Team RNG's other build ---
+def test_a_small_change_to_a_proprietor_cannot_hide_in_a_long_legal_name():
+    from core.kyc.checks import legal_names_match
+    good = "Joseph Singh (Prop. Ganesh Woodcraft)"
+    assert legal_names_match("Joseph Singh (Prop. Ganesh Woodcraft)", good) and legal_names_match("Joseph Singh (Prop. Ganesh Woodcrafl)", good)
+    assert not legal_names_match("Joseph Sinha (Prop. Ganesh Woodcraft)", good)
+    assert not legal_names_match("Jose Singh (Prop. Ganesh Woodcraft)", good)
+    assert _with("gst", legal_name="Joseph Sinha (Prop. Ganesh Woodcraft)").verdict == "needs_review"
+
+
+def test_company_suffixes_and_ampersands_are_the_same_name():
+    assert names_match("Trinity Bake House Pvt Ltd", "Trinity Bake House Private Limited") and names_match("Vindhya Tours & Travels", "Vindhya Tours and Travels") and not names_match("Trinity Bake House", "Trinity Cake House Stores")
+
+
+def test_a_slightly_misread_label_is_still_found():
+    from core.kyc.ocr import parse
+    f = parse("GSTIN 27XUIXG0767D1ZP\nLegai narne Joseph Singh\nTrade nane Ganesh Woodcraft\nDate of liabilty 2020-02-10", "gst")
+    assert f["legal_name"] == "Joseph Singh" and f["trade_name"] == "Ganesh Woodcraft" and f["liability_date"] == "2020-02-10"
+    assert "billed_to" not in parse("Billing cycle is monthly\nBuilt by us", "bill")
+
+
+def test_a_plan_without_gstin_asks_only_for_id_and_address_proof():
+    s = load_specimen("K03")
+    full = verify_files([s["id"], s["bill"]], gst_optional=True)
+    assert full.verdict == "verified" and not [c for c in _codes(full) if c in ("missing_gst", "missing_udyam")]
+    assert verify_files([s["id"], s["bill"]]).verdict == "needs_review"  # a plan that needs one still asks
+    assert verify_files([s["id"], load_specimen("K08")["bill"]], gst_optional=True).verdict == "needs_review"  # the ID and bill must agree
+    assert verify_files([s["id"]], gst_optional=True).verdict == "needs_review"
+
+
+def test_a_supplied_gst_certificate_is_always_checked_even_when_optional():
+    k = load_specimen("K01"); assert verify_files(list(k.values()), gst_optional=True).verdict == "rejected"
+
+
+def test_a_supplied_udyam_alone_keeps_the_gst_question_open():
+    s = load_specimen("K03"); r = verify_files([s["id"], s["bill"], s["udyam"]], gst_optional=True); assert "missing_gst" in _codes(r)
+
+
+def test_ocr_outage_is_a_clear_error_not_a_verdict(monkeypatch):
+    import pytesseract
+    from core.kyc.ocr import OcrUnavailable
+    def gone(*a, **k): raise pytesseract.TesseractNotFoundError()
+    monkeypatch.setattr(pytesseract, "image_to_string", gone)
+    with pytest.raises(OcrUnavailable): verify_images(load_specimen("K03"))
+
+
+def test_a_pdf_that_hangs_or_crashes_the_worker_only_fails_that_file(monkeypatch):
+    import subprocess as sp
+    from core.kyc import pipeline
+    def hang(*a, **k): raise sp.TimeoutExpired("x", 1)
+    monkeypatch.setattr(pipeline.subprocess, "run", hang)
+    assert open_upload(io.BytesIO(b"%PDF-1.4 anything")) == ([], "bad_file")
+    monkeypatch.setattr(pipeline.subprocess, "run", lambda *a, **k: sp.CompletedProcess(a, -9, b"", b""))
+    assert open_upload(io.BytesIO(b"%PDF-1.4 anything")) == ([], "bad_file")

@@ -45,8 +45,15 @@ class Result:
         return " ".join(M.issue_text(i.code, i.params, lang) for i in shown)
 
 
+_SUFFIXES = {"pvt", "private", "ltd", "limited", "llp"}  # a certificate and a bill may or may not print these for the same business
+
+
 def _norm(s: str) -> str:
-    return re.sub(r"\s+", " ", re.sub(r"[^a-z0-9 ]", " ", (s or "").lower())).strip()
+    return re.sub(r"\s+", " ", re.sub(r"[^a-z0-9 ]", " ", (s or "").lower().replace("&", " and "))).strip()
+
+
+def _plain_name(s: str) -> str:
+    return " ".join(w for w in _norm(s).split() if w not in _SUFFIXES)
 
 
 def name_score(a, b) -> float:
@@ -54,8 +61,18 @@ def name_score(a, b) -> float:
 
 
 def names_match(a, b) -> bool:
-    x, y = _norm(a), _norm(b)
+    x, y = _plain_name(a), _plain_name(b)
     return bool(x and y) and fuzz.ratio(x, y) >= NAME_MIN and Levenshtein.distance(x, y) <= NAME_MAX_EDITS
+
+
+_PROP = re.compile(r"^(.+?)\s*\(\s*Prop\.?\s*(.+?)\s*\)?\s*$", re.I)
+
+
+def legal_names_match(a, b) -> bool:
+    """A proprietor's person and business are compared apart, so a small change can't hide inside a long name."""
+    x, y = _PROP.match((a or "").strip()), _PROP.match((b or "").strip())
+    if x and y: return names_match(x.group(1), y.group(1)) and names_match(x.group(2), y.group(2))
+    return names_match(a, b)
 
 
 def _addr_ok(a: str, b: str) -> bool:
@@ -124,13 +141,15 @@ def _shown(doc: str, f: dict) -> dict:
     return out
 
 
-def check_applicant(docs: dict[str, Extracted], entered_gstin: str | None = None, today: date = TODAY, duplicates: tuple = ()) -> Result:
+def check_applicant(docs: dict[str, Extracted], entered_gstin: str | None = None, today: date = TODAY, duplicates: tuple = (), gst_optional: bool = False) -> Result:
+    """gst_optional: this plan sells without a GSTIN, so an owner who has none is asked only for their ID and address proof."""
     issues, checks = [], []
     def add(sev, code, **params):
         issues.append(Issue(sev, code, M.issue_text(code, params), params))
     def ok(code, **params): checks.append((code, params))
+    skip = {"gst", "udyam"} if gst_optional and "gst" not in docs and "udyam" not in docs else set()
     for key in ("gst", "udyam", "id", "bill"):
-        if key not in docs: add("review", f"missing_{key}")
+        if key not in docs and key not in skip: add("review", f"missing_{key}")
     for key in duplicates: add("review", f"duplicate_{key}")  # never quietly pick one of two conflicting documents
     unreadable = set()
     for key, e in docs.items():
@@ -162,7 +181,7 @@ def check_applicant(docs: dict[str, Extracted], entered_gstin: str | None = None
                 add("reject", "gst_inactive", status_en=en, status_hi=hi)
             else:
                 ok("gst_active")
-            if names_match(f.get("legal_name"), record["legal_name"]): ok("legal_name")
+            if legal_names_match(f.get("legal_name"), record["legal_name"]): ok("legal_name")
             else: add("review", "legal_name_mismatch")
             before = len(issues)
             if not names_match(f.get("trade_name"), record["trade_name"]): add("review", "trade_name_mismatch")
@@ -175,6 +194,7 @@ def check_applicant(docs: dict[str, Extracted], entered_gstin: str | None = None
             if gstin_problem(record["gstin"]):
                 add("review", "gst_format")
     trade = record["trade_name"] if record else (g.fields.get("trade_name") if g else None)
+    if not g and b and "bill" not in unreadable: trade = b.fields.get("billed_to")  # no GST record: the ID and the bill must at least agree
     if u and "udyam" not in unreadable:
         num = u.fields.get("udyam", "")
         if not num:
@@ -194,6 +214,7 @@ def check_applicant(docs: dict[str, Extracted], entered_gstin: str | None = None
         if trade:
             if names_match(u.fields.get("name"), trade): ok("udyam_gst")
             else: add("review", "udyam_vs_gst")
+    if not u and record and registry.udyam_on_file(record["gstin"]): ok("udyam_on_file")  # still goes to a person: the certificate is on the required list
     if b and "bill" not in unreadable:
         d = _date(b.fields.get("date"))
         if d is None:

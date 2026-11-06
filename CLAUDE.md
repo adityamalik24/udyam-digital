@@ -60,6 +60,9 @@ pip install -r requirements.txt   # plus tesseract
 streamlit run app/Home.py
 pytest -q
 python tests/run_scenarios.py
+python tests/run_scenarios.py tests/advisor_teammate.yaml
+python tests/kyc_stress.py        # slow: degraded uploads and forgeries
+python tests/live_check.py 8      # spends free Gemini quota
 ```
 
 ## Out of scope

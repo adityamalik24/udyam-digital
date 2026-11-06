@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from . import guardrails as G, llm, understand as U
 from .catalogue import catalogue
 from .kyc import registry
-from .rules import Profile, Recommendation, recommend, reason_text, NEEDS, NEED_PRODUCT, MICRO, QUESTION_VALUES, question_matters, gstin_product, alt_diff, mentionable
+from .rules import Profile, Recommendation, recommend, reason_text, NEEDS, NEED_PRODUCT, NO_GST_OPTION, closest_option, MICRO, QUESTION_VALUES, question_matters, gstin_product, alt_diff, mentionable
 
 TIER1 = {"delhi": "दिल्ली", "mumbai": "मुंबई", "bengaluru": "बेंगलुरु", "bangalore": "बैंगलोर", "chennai": "चेन्नई", "kolkata": "कोलकाता", "hyderabad": "हैदराबाद", "pune": "पुणे", "ahmedabad": "अहमदाबाद",
          "gurgaon": "गुड़गांव", "gurugram": "गुरुग्राम", "noida": "नोएडा"}
@@ -30,7 +30,7 @@ GST_BAD = re.compile(rf"{GST_WORD}\W+(\w+\W+){{0,3}}(cancel|suspend|expired|revo
 GST_UNSURE = re.compile(rf"(not sure|don'?t know|dont know|no idea|pata nahi|unsure|पता नहीं).{{0,30}}{GST_WORD}|{GST_WORD}.{{0,30}}(not sure|don'?t know|pata nahi|पता नहीं)", re.I)
 EXISTING = re.compile(r"(already|existing|pehle se)\W+(\w+\W+){0,3}(internet|broadband|fibre|fiber|wi-?fi|net connection)|(?<!don't )(?<!dont )\b(we|i) (have|use|got) (an? |our )?(?!no\b|not\b|poor\b|bad\b|slow\b)(\w+ )?(internet|broadband|fibre|fiber)\b|(internet|broadband|fibre|fiber|wi-?fi) (already|pehle se)|पहले से.{0,20}(इंटरनेट|ब्रॉडबैंड)|(इंटरनेट|ब्रॉडबैंड).{0,10}पहले से", re.I)
 NEG_BEFORE = re.compile(r"(don'?t|dont|do not)\s+(want|need|require)\b|\bno need\b|\b(remove|drop|delete|cancel|skip|exclude)\b|(?<!can't work )(?<!cannot work )\bwithout\b|\b(hatao|hata do)\b|हटाओ|हटा दो", re.I)
-NEG_AFTER = re.compile(r"^\W*(?:\S+\s+){0,2}?(nahi chahiye|nahin chahiye|nahi lena|mat (?:do|lagao|dena)|not needed|not required|hatao|hata do|ki zaroorat nahi|की ज़रूरत नहीं|नहीं चाहिए|हटाओ|हटा दो)", re.I)
+NEG_AFTER = re.compile(r"^\W*nahi\W*$|^\W*(?:\S+\s+){0,2}?(nahi chahiye|nahin chahiye|nahi lena|mat (?:do|lagao|dena)|not needed|not required|hatao|hata do|ki zaroorat nahi|की ज़रूरत नहीं|नहीं चाहिए|हटाओ|हटा दो)", re.I)
 CLAUSE = re.compile(r"[,.;]|\bbut\b|\bonly\b|\bjust\b|\bsirf\b|\bbas\b|\blekin\b|लेकिन|सिर्फ")
 
 
@@ -69,12 +69,12 @@ BTYPES = [("manufacturer", r"manufactur|factory|textile|garment unit|auto.?parts
 NEED_RX = [("mobile_premium", r"\b150 ?gb\b|roaming|priority care"), ("mobile_line", r"\bsims?\b|sim card|mobile (line|plan|connection)|postpaid|सिम|मोबाइल (लाइन|प्लान)"),
            ("internet_for_upi_pos", r"\bupi\b|यूपीआई|qr code|payment|card machine|swip(e|ing)|कार्ड मशीन|स्वाइप"), ("pos_billing", r"\bpos\b|billing|बिलिंग|inventory|cash counter"),
            ("cloud_email", r"e-?mail|ईमेल|office suite|google workspace|gmail"), ("storage", r"storage|back ?up(?! (?:internet|link|line|connection|router|4g|5g|net))|बैकअप(?! (?:इंटरनेट|लिंक|लाइन))|स्टोरेज|los(?:e|ing) (?:my |our |the |all )?(?:data|files|records|them)"),
-           ("cctv", r"cctv|camera|सीसीटीवी|कैमरा|surveillance"), ("firewall", r"firewall|फ़ायरवॉल"), ("security", r"antivirus|security|ransomware|hack|सुरक्षा|सिक्योरिटी|data safe|डेटा|(?:patient|client|customer)s?'?s? (?:records|data)"),
+           ("cctv", r"cctv|camera|सीसीटीवी|कैमरा|कैमरे|surveillance"), ("firewall", r"firewall|फ़ायरवॉल"), ("security", r"antivirus|security|ransomware|hack|सुरक्षा|सिक्योरिटी|data safe|डेटा|(?:patient|client|customer)s?'?s? (?:records|data)"),
            ("customer_messaging", r"whats ?app|व्हाट्सएप|catalogue|customer messag"), ("sms", r"\bsms\b|एसएमएस|bulk message"), ("wifi", r"wi-?fi|वाईफाई|guest network"),
            ("website", r"website|वेबसाइट|domain"), ("dedicated_bandwidth", r"leased ?line|dedicated|लीज़्ड|लीज्ड|लीज लाइन|\bsla\b"), ("high_speed", r"\b1 ?g(bps)?\b|gigabit|100 ?mbps dedicated"),
-           ("iot", r"\biot\b|machine monitoring|monitor\w*\W+(\w+\W+){0,2}machines?|machines?\W+(\w+\W+){0,2}monitor|sensor|आईओटी|(?<!कार्ड )(?<!बिलिंग )(?<!स्वाइप )मशीन"), ("fleet", r"fleet|gps|vehicle track|truck|गाड़ी|गाड़ियों"), ("telephony", r"\bivr\b|sip\b|telephony|call recording"), ("toll.free", r"toll.?free|1800|टोल"),
-           ("static_ip", r"static ip|स्टैटिक"), ("sdwan", r"sd-?wan|central(ly)? manag|one dashboard"), ("failover", r"failover|back ?up (internet|link|line|connection|router|4g|5g|net)|बैकअप (इंटरनेट|लिंक|लाइन)|फेलओवर"),
-           ("uptime", r"uptime|downtime|never go down|keeps? going down|drops?\b|कटता|बंद हो जाता"), ("internet", r"internet|broadband|fibre|fiber|\b5g\b|airfiber|wifi|net connection|इंटरनेट|ब्रॉडबैंड|फाइबर|\bnet\b")]
+           ("iot", r"\biot\b|machine monitoring|monitor\w*\W+(\w+\W+){0,2}machines?|machines?\W+(\w+\W+){0,2}monitor|sensor|आईओटी|(?<!कार्ड )(?<!बिलिंग )(?<!स्वाइप )मशीन"), ("fleet", r"fleet|gps|vehicle track|truck|गाड़ी|गाड़ियों|गाड़ियाँ|गाड़ियां"), ("telephony", r"phone lines?|call recording|कॉल रिकॉर्डिंग|\bivr\b|sip\b|telephony|call recording"), ("toll.free", r"toll.?free|1800|टोल"),
+           ("static_ip", r"static ip|fixed ip|public ip|स्टैटिक"), ("sdwan", r"sd-?wan|central(ly)? (manag|control)|one dashboard"), ("failover", r"failover|back ?up (internet|link|line|connection|router|4g|5g|net)|बैकअप (इंटरनेट|लिंक|लाइन)|फेलओवर"),
+           ("uptime", r"uptime|downtime|never go down|stays? up\b|stays? online|keeps? going down|drops?\b|band na ho|kabhi band|कटता|बंद हो जाता|बंद न हो"), ("internet", r"internet|broadband|fibre|fiber|\b5g\b|airfiber|wifi|net connection|इंटरनेट|ब्रॉडबैंड|फाइबर|\bnet\b")]
 HINDI_NUM = {"ek": 1, "do": 2, "teen": 3, "char": 4, "chaar": 4, "paanch": 5, "panch": 5, "chhe": 6, "cheh": 6, "saat": 7, "aath": 8, "nau": 9, "das": 10, "gyarah": 11, "barah": 12, "pandrah": 15, "bees": 20, "pachees": 25, "tees": 30, "pachas": 50, "eleven": 11, "twelve": 12, "thirteen": 13, "fourteen": 14, "fifteen": 15, "sixteen": 16, "eighteen": 18, "twenty": 20, "thirty": 30, "forty": 40, "fifty": 50, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10,
              "एक": 1, "दो": 2, "तीन": 3, "चार": 4, "पांच": 5, "पाँच": 5, "छह": 6, "छः": 6, "सात": 7, "आठ": 8, "नौ": 9, "दस": 10}
 NUM = r"(?<![a-z\d])(\d+|(?:" + "|".join(HINDI_NUM) + r")(?![a-z]))"
@@ -184,12 +184,15 @@ class State:
     history: list[tuple[str, str]] = field(default_factory=list)
     declined: list[str] = field(default_factory=list)
     stuck: int = 0
+    no_ai: bool = False
+    reply_lang: str | None = None  # a regional language the owner is writing in, which replies are translated into
     restarted: bool = False  # tells the page to clear the visible chat
 
 
 LINK_WHY = {
  "fibre_needed": ("{name} only works on wired fibre", "{name} केवल वायर्ड फाइबर पर चलता है", "{name} sirf wired fibre par chalta hai"),
  "closest": ("the fastest connection you can get right now, since Biz Fibre 1G isn't available to you", "आपके लिए उपलब्ध सबसे तेज़ कनेक्शन, क्योंकि Biz Fibre 1G आपके लिए उपलब्ध नहीं है", "aapke liye available sabse fast connection, kyunki Biz Fibre 1G aapke liye available nahi hai"),
+ "no_fibre": ("wireless 5G, because fibre doesn't reach your site", "वायरलेस 5G, क्योंकि आपकी जगह फाइबर नहीं पहुँचता", "wireless 5G, kyunki aapki site par fibre nahi pahunchta"),
  "asked_5g": ("the wireless 5G connection you asked for", "आपका माँगा हुआ वायरलेस 5G कनेक्शन", "aapka manga hua wireless 5G connection"),
  "asked_fibre": ("the wired fibre connection you asked for", "आपका माँगा हुआ वायर्ड फाइबर कनेक्शन", "aapka manga hua wired fibre connection"),
  "implied": ("this needs internet at your site; tell me if you already have it and I'll take this out", "इसके लिए आपकी साइट पर इंटरनेट चाहिए; पहले से है तो बताएँ, मैं इसे हटा दूँगा", "iske liye site par internet chahiye; already hai to bataiye, main ise hata dunga"),
@@ -240,6 +243,9 @@ def trade_text(rec: Recommendation, lang: str) -> str:
     return " ".join(parts)
 
 
+NO_FIBRE = re.compile(r"\bno fib(?:re|er)\b|fib(?:re|er)\W+(?:\w+\W+){0,3}?(?:does ?n[o']t|do ?n[o']t|not|nahi|nahin|isn'?t|can'?t)\b(?:\W+(?:reach|come|available|aata|aati|pahunch\w*|here|hai)\b)?|without fib(?:re|er)|फाइबर\W+(?:\w+\W+){0,2}?नहीं", re.I)
+
+
 def detect_language(text: str, current: str) -> str:
     if DEVANAGARI.search(text): return "hi"
     if HING.search(text): return "hinglish"
@@ -250,7 +256,7 @@ def detect_language(text: str, current: str) -> str:
 def extract_profile(text: str, p: Profile, awaiting: str | None = None) -> dict:
     """Pure regex extraction. Later statements overwrite earlier ones so users can correct themselves."""
     t, u = text.lower(), {}
-    t = re.sub(r"\b(what|how|why|which|where|when|who|you|we|they|i|can|should|does|did)\s+do\b|\bdo\s+(you|we|i|they)\b", " ", t)  # English "do" is not Hindi for 2
+    t = re.sub(r"\b(what|how|why|which|where|when|who|you|we|they|i|can|should|does|did)\s+do\b(?!\s+not\b)|\bdo\s+(you|we|i|they)\b", " ", t)  # English "do" is not Hindi for 2
     t = re.sub(r"(?<![\w])-\s*\d+", " ", t)  # a negative count is not a count
     for name, rx in BTYPES:
         if re.search(rx, t): u["business_type"] = name; break
@@ -259,7 +265,7 @@ def extract_profile(text: str, p: Profile, awaiting: str | None = None) -> dict:
     if m and num(m.group(1)) is not None: u["employees"] = num(m.group(1))
     elif (roles := re.findall(NUM + rf"\s*(?:{ROLES})(?![a-z])", t)):
         u["employees"] = sum(num(x) for x in roles)
-    elif (m := re.search(NUM + r"\s+of us\b", t)) or (m := re.search(r"\bhum\s+" + NUM + r"\b", t)):
+    elif (m := re.search(NUM + r"\s+of us\b", t)) or (m := re.search(r"\bhum\s+" + NUM + r"\b", t)) or (m := re.search(r"\bwe(?:'re| are)(?: now| only| just)?\s+" + NUM + r"\b(?!\s*(?:%|years?|km))", t)) or (m := re.search(r"हम\s+" + NUM, t)):
         u["employees"] = num(m.group(1))
     elif re.search(r"\b(?:wife|husband|brother|sister|son|daughter|partner) and (?:me|i)\b", t):
         u["employees"] = 2
@@ -268,12 +274,13 @@ def extract_profile(text: str, p: Profile, awaiting: str | None = None) -> dict:
     if re.search(r"\b(just me|only me|myself|akela|sirf main)\b|अकेला|सिर्फ मैं", t): u["employees"] = 1
     m = re.search(NUM + r"\s*(?:outlets?|branch(?:es)?|locations?|sites?|stores?|shops?|offices?|clinics?|restaurants?|units?|salons?|pharmac(?:y|ies)|kiranas?|firms?|centres?|centers?|cafes?|plants?|workshops?|hotels?|dukaan|dukan|factories|ब्रांच|लोकेशन|आउटलेट|दुकानें|दुकान|शाखा)", t)
     if m and num(m.group(1)) is not None: u["locations"] = num(m.group(1))
+    elif (m := re.search(NUM + r"\s+[a-z]+\s+(?:outlets?|branch(?:es)?|stores?|shops?|clinics?|restaurants?|showrooms?)\b", t)) and num(m.group(1)) is not None: u["locations"] = num(m.group(1))  # "three bakery outlets"
     if re.search(r"single (shop|location|site|store|office)|only one (shop|location|site|branch)|one branch|ek hi|एक ही|\bek (jagah|location|branch|office|dukan|shop|outlet)\b|एक (जगह|लोकेशन|ब्रांच|दुकान|ऑफ़िस|आउटलेट)", t): u["locations"] = 1
     found = _find_city(t, text, awaiting)
     if found: u["city"], u["city_tier"] = found.title(), CITY_TIER[found]
     # An unknown word after "in" may be a town, but must not overwrite a city we already have ("drops in evening").
     if "city" not in u and (p.city is None or re.search(r"\b(moved|shifted|relocat\w*|actually)\b", t)):
-        m = re.search(r"\b(?:in|from|based in)\s+([A-Za-z]{3,})(?:\s+(?:mein|me|city)\b)?", text)
+        m = re.search(r"\b(?:in|from|based in|moved to|shifted to|relocated to)\s+([A-Za-z]{3,})(?:\s+(?:mein|me|city)\b)?", text)
         if m and m.group(1).lower() not in NOT_PLACE:
             u["city"] = m.group(1).title()
     if "city" not in u:
@@ -291,7 +298,7 @@ def extract_profile(text: str, p: Profile, awaiting: str | None = None) -> dict:
         u["has_gstin"] = False
     elif GST_UNSURE.search(t) or G.FAQ_TAX.search(t) or G.GSTIN_ASK.search(t):
         pass  # unsure, or a question about tax: it says nothing about registration, so ask instead of guessing
-    elif re.search(rf"(no|without|not|don'?t have|do not have|dont have|haven'?t|bina|बिना)\W+(\w+\W+){{0,2}}{gst}|{gst}\W+(\w+\W+){{0,2}}(nahi|nahin|नहीं|na\b|not)|\bunregistered\b|not registered", t, re.I):
+    elif re.search(rf"(no|without|not|don'?t have|do not have|dont have|don'?t|do not|dont|haven'?t|bina|बिना)\W+(\w+\W+){{0,2}}{gst}|{gst}\W+(\w+\W+){{0,2}}(nahi|nahin|नहीं|na\b|not)|\bunregistered\b|not registered", t, re.I):
         u["has_gstin"] = False
     elif re.search(gst, t, re.I) or "[gstin removed]" in t: u["has_gstin"] = True
     m = re.search(NUM + r"\s*(?:business\s+|mobile\s+|postpaid\s+)*(?:sims?|lines?|सिम)", t)
@@ -305,6 +312,11 @@ def extract_profile(text: str, p: Profile, awaiting: str | None = None) -> dict:
     m = re.search(NUM + r"\s*(?:vehicles?|trucks?|गाड़ियों|गाड़ियाँ)", t)
     if m and num(m.group(1)): u["vehicles"] = num(m.group(1))
     needs = []
+    # "Fibre doesn't reach us" is a fact about the site, not a request for fibre.
+    no_fibre = NO_FIBRE.search(t)
+    if no_fibre:
+        u["no_fibre"], u["link_pref"] = True, "5g"
+        t = NO_FIBRE.sub(" ", t)
     # Tools they use today describe the current setup; they are not a request.
     tn = re.sub(r"(?:home (?:wi-?fi|broadband|internet)|(?:mobile )?hotspot|(?:personal |own )?gmail)", " ", t) if re.search(r"\b(on|use|using|have|with|from|through|chalate|chalta)\b", t) else t
     declined = []
@@ -321,16 +333,22 @@ def extract_profile(text: str, p: Profile, awaiting: str | None = None) -> dict:
     if only_sim: needs = ["mobile_premium" if "mobile_premium" in needs else "mobile_line"]; u["only"] = True
     if needs: u["needs"] = needs
     if declined: u["declined"] = declined
-    if not EXISTING.search(t):
+    if "storage" in needs and set(needs) & {"uptime", "failover"} and not re.search(r"file|data|photo|document|cloud|फ़ाइल|डेटा", t):
+        needs = [("failover" if n == "storage" else n) for n in needs]  # "internet must stay up, and a backup" means a backup line
+    if needs: u["needs"] = list(dict.fromkeys(needs))
+    if not EXISTING.search(t) and not no_fibre:
         if re.search(r"(?<!backup )(?<!back up )\b5g\b(?! backup| failover)|airfiber|wireless|वायरलेस", tn): u["link_pref"] = "5g"
         elif re.search(r"fibre|fiber|wired|फाइबर", tn): u["link_pref"] = "fibre"
     setup = []
     if EXISTING.search(t): setup.append("existing_link")
     if re.search(r"business broadband", t): setup.append("business_broadband")
-    if re.search(r"(already|existing|current|have|hai).{0,20}leased line", t): setup.append("leased_line")
+    if re.search(r"(already|existing|current).{0,20}leased line|\b(have|hai)\W+(a |an |our )?leased line|\bon (a |our )?leased line", t):
+        setup.append("leased_line")
+        if "needs" in u: u["needs"] = [n for n in u["needs"] if n != "dedicated_bandwidth"] or u.pop("needs") and []
     if re.search(r"hotspot|हॉटस्पॉट", t): setup.append("hotspot")
     if re.search(r"home broadband|home wifi", t): setup.append("home_broadband")
     if setup: u["current_setup"] = setup
+    if re.search(r"\b(it|that)(?:'s| is) active\b|\bactive hai\b|सक्रिय है", t) and (p.has_gstin is not None or awaiting == "has_gstin"): u["has_gstin"] = True  # "sorry, it is active"
     # Bare answers to the pending question
     y = re.match(r"\s*((yes|yeah|yep|haan|han|ha|ji)\b|हाँ|हां|जी)", t); n = re.match(r"\s*((no|nope|nah|nahi|nahin)\b(?! idea)|नहीं|नही|ना\b)", t)
     if awaiting == "city_tier":  # that question also asks about GSTIN, so the yes or no can follow the tier
@@ -340,7 +358,7 @@ def extract_profile(text: str, p: Profile, awaiting: str | None = None) -> dict:
         elif n: u["has_gstin"] = False
     if awaiting in ("employees", "locations") and not {"employees", "locations"} & set(u) and len(text.split()) <= 4:  # in a longer sentence the first number may be only part of the answer
         m = re.search(NUM, t)
-        if m and num(m.group(1)) is not None and not re.search(r"\[", t): u[awaiting] = num(m.group(1))
+        if m and num(m.group(1)) and not re.search(r"\[", t): u[awaiting] = num(m.group(1))  # 0 is not an answer
     if awaiting == "business_type" and "business_type" not in u and text.strip() and not re.search(r"small business|chhota business|छोटा बिज़नेस|business$", t) and len(text.split()) <= 6 and not VAGUE.search(t) and not ASKING.search(t):
         u["business_type"] = "other"
     if awaiting == "city" and "city" not in u and text.strip() and len(text.split()) <= 3 and not n and not VAGUE.search(t) and not ASKING.search(t) and not any(re.search(rx, t) for _, rx in NEED_RX):  # "internet chahiye" is not a town
@@ -369,22 +387,40 @@ def _merge(s: State, u: dict) -> None:
     if "city" in u and "city_tier" not in u: p.city_tier = None
 
 
-def _merge_llm(s: State, text: str, have: dict) -> None:
-    """LLM fills only gaps the regex left. Output is validated like any other untrusted input."""
-    if llm.client() is None: return
-    raw = llm.extract(f"[Question just asked: {s.awaiting}] {text}" if s.awaiting else text, NEEDS)
+def _merge_llm(s: State, text: str, have: dict) -> dict:
+    """LLM fills only gaps the regex left. Each value is judged alone, so an odd one costs that value and not the turn. Returns what isn't a fact."""
+    if llm.client() is None: return {}
+    known = {k: v for k, v in s.profile.model_dump().items() if v not in (None, [], False, 1) and k != "language"}
+    asked = s.awaiting or ("none, a recommendation is on screen" if s.rec else "none")
+    raw = llm.extract(f"Known so far: {known}\nQuestion just asked: {asked}\nThe owner replied, between the markers:\n{llm.owner_message(text)}", NEEDS)
+    if not isinstance(raw, dict): return {}
     clean = {}
     for k, top in (("employees", 100000), ("locations", 10000)):
         if type(raw.get(k)) is int and 0 < raw[k] < top: clean[k] = raw[k]
+    for k, field_name in (("lines", "sim_lines"), ("cameras", "cameras"), ("vehicles", "vehicles"), ("machines", "devices_iot")):
+        if type(raw.get(k)) is int and 0 < raw[k] < 100000: clean[field_name] = raw[k]
     if isinstance(raw.get("has_gstin"), bool): clean["has_gstin"] = raw["has_gstin"]
+    if raw.get("gstin_status") in ("ACTIVE", "NONE", "CANCELLED", "SUSPENDED"): clean["has_gstin"] = raw["gstin_status"] == "ACTIVE"
     if raw.get("business_type") in {"kirana", "salon", "pharmacy", "clinic", "ca_firm", "coaching", "restaurant", "retailer", "manufacturer", "office", "other"}: clean["business_type"] = raw["business_type"]
     if isinstance(raw.get("city"), str):
         c = raw["city"].strip().lower()[:40]
         clean["city"] = c.title()
         if c in CITY_TIER: clean["city_tier"] = CITY_TIER[c]
     if raw.get("city_tier") in (1, 2, 3): clean["city_tier"] = raw["city_tier"]
-    if isinstance(raw.get("needs"), list): clean["needs"] = [n for n in raw["needs"] if n in NEEDS and n not in s.declined]
-    _merge(s, {k: v for k, v in clean.items() if k not in have and (k == "needs" or getattr(s.profile, k) is None)})
+    if raw.get("fibre_reaches") is False: clean["no_fibre"], clean["link_pref"] = True, "5g"
+    wanted = raw.get("add_needs", raw.get("needs"))
+    if isinstance(wanted, list): clean["needs"] = [n for n in wanted if n in NEEDS and n not in s.declined]
+    if isinstance(raw.get("current_setup"), list): clean["current_setup"] = [x for x in raw["current_setup"] if x in ("business_broadband", "home_broadband", "leased_line", "hotspot")]
+    gone = [n for n in raw.get("remove_needs", []) if n in NEEDS] if isinstance(raw.get("remove_needs"), list) else []
+    # A later statement can only fill a gap, or remove something: what code read directly always stands.
+    _merge(s, {k: v for k, v in clean.items() if k not in have and (k in ("needs", "current_setup", "no_fibre", "link_pref") or getattr(s.profile, k) in (None, 1))})
+    if gone: _merge(s, {"declined": gone})
+    intents = raw.get("intents") if isinstance(raw.get("intents"), list) else []
+    if raw.get("language") == "mr": s.reply_lang = "mr"
+    thing = raw.get("unknown_product") if isinstance(raw.get("unknown_product"), str) else None
+    return {"intents": set(intents), "thing": re.sub(r"[^\w &'-]", " ", thing)[:40].strip() if thing else None,
+            "closest": raw.get("closest_need") if raw.get("closest_need") in NEEDS else None, "sites_differ": raw.get("sites_differ") is True,
+            "declined": [k for k in raw.get("declined", []) if k in ("employees", "locations", "has_gstin", "city")] if isinstance(raw.get("declined"), list) else []}
 
 
 def next_question(s: State) -> str | None:
@@ -414,18 +450,18 @@ def render_rec(s: State) -> str:
     rec, lang = s.rec, s.profile.language
     if not rec.serviceable: return _lang_text("tier3", lang)
     cat = catalogue()
-    if not rec.quote: return _lang_text("none", lang) + _excluded(rec, lang)
+    if not rec.quote: return _lang_text("none", lang) + _excluded(rec, lang, s.profile)
     parts = [_lang_text("rec", lang)]
     for l in rec.quote.lines:
         why = why_text(rec, l.product_id, lang)
         parts.append(f"- {l.name}" + (f" × {l.qty}" if l.qty > 1 else "") + f": ₹{l.monthly:,}" + (f" ({why})" if why else ""))
-    parts.append(_lang_text("monthly", lang, m=rec.quote.monthly, s=rec.quote.setup, c=rec.quote.contract))
+    parts.append(_lang_text("monthly", lang, m=rec.quote.monthly, s=rec.quote.setup, c=rec.quote.contract).replace("minimum 1 months", "minimum 1 month"))
     for a, b in rec.auto_added.items():
         parts.append(_lang_text("dep", lang, a=cat[a].name, b=cat[b].name))
     if rec.alternative:
         names = ", ".join(cat[k].name for k in rec.alternative)
         parts.append(_join(_lang_text("alt", lang, names=names, m=rec.alt_quote.monthly), trade_text(rec, lang)))
-    x = _excluded(rec, lang)
+    x = _excluded(rec, lang, s.profile)
     if x: parts.append(x.strip())
     if rec.handoff == "multi_site": parts.append(_lang_text("multi", lang))
     elif rec.handoff: parts.append(_lang_text("custom", lang))
@@ -433,24 +469,48 @@ def render_rec(s: State) -> str:
     return "\n\n".join(parts)
 
 
-def _excluded(rec, lang) -> str:
+def _excluded(rec, lang, profile=None) -> str:
     cat = catalogue()
     seen, items = set(rec.items), []
     for pid, r in rec.excluded:
         if pid not in seen:
             seen.add(pid); items.append(f"{cat[pid].name} ({reason_text(r, lang)})")
-    return " " + _lang_text("excluded", lang, x="; ".join(items)) if items else ""
+    if not items: return ""
+    option = next((NO_GST_OPTION[p] for p, r in rec.excluded if r[0] == "gstin" and p in NO_GST_OPTION and NO_GST_OPTION[p] not in rec.items), None)
+    tail = " " + U.TALK["no_gst_option"][lang].format(name=cat[option].name) if option else ""
+    prof = profile
+    near = next((o for p, _ in rec.excluded if prof and (o := closest_option(p, prof, rec.items))), None)
+    if near: tail += " " + U.TALK["closest"][lang].format(names=" + ".join(cat[p].name for p in near))
+    return " " + _lang_text("excluded", lang, x="; ".join(items)) + tail
 
 
 def _polish(draft: str, s: State, client=None) -> str:
-    """Optional LLM rewording, validated; a failed check regenerates once, then the checked draft is shown."""
-    if client is None and llm.client() is None: return draft
+    """Optional LLM wording of a checked draft. Numbers and product names go out as slots and come back from code,
+    so the model can't change one. A refused attempt retries once with a reminder, then the draft is shown."""
+    if (client is None and llm.client() is None) or s.reply_lang: return draft  # regional replies are translated once, at the end of the turn
     q, alt = s.rec.quote, s.rec.alt_quote
-    for _ in range(2):
-        out = llm.rewrite(draft, s.profile.language, client)
+    masked, slots = G.mask_slots(draft)
+    for retry in (False, True):
+        out = llm.rewrite(masked, s.profile.language, client, retry)
         if not out: break  # the service failed: don't make the owner wait for a second try
-        if not G.check_reply(out, q, alt, mentionable(s.rec), draft) and not G.dropped_facts(out, draft, alt, [catalogue()[e[0]].name for e in s.rec.excluded]): return out
+        filled = G.fill_slots(out, slots)
+        if not G.check_slots(out, slots) and not G.check_reply(filled, q, alt, mentionable(s.rec), draft) and not G.dropped_facts(filled, draft, alt, [catalogue()[e[0]].name for e in s.rec.excluded]):
+            llm.stats["worded"] += 1
+            return filled
+        llm.stats["refused"] += 1
+    llm.stats["template"] += 1
     return draft
+
+
+def _translate(reply: str, code: str) -> str | None:
+    """A checked reply in a regional language. Slots keep every number and name exact, whatever the script."""
+    masked, slots = G.mask_slots(reply)
+    for retry in (False, True):
+        out = llm.rewrite(masked, code, None, retry)
+        if not out: return None
+        if not G.check_slots(out, slots): return G.fill_slots(out, slots)
+        llm.stats["refused"] += 1
+    return None
 
 
 def _converse(s: State, text: str, lang: str, client=None) -> str | None:
@@ -551,6 +611,67 @@ def _topic_reply(s: State, text: str, u: dict, lang: str) -> str | None:
     return body if q else _join(body, _steer(s))
 
 
+def from_form(s: State, business: str, city: str, tier: int | None, employees: int, locations: int, has_gstin: bool | None, needs: list[str], no_fibre: bool = False) -> str:
+    """The short form: the same facts and the same rules as the chat, with no AI involved. An unlisted city needs its tier."""
+    lang = s.profile.language
+    found = _find_city(city.lower(), city, "city")
+    u = {"business_type": business, "employees": employees, "locations": locations, "needs": [n for n in needs if n in NEEDS] or ["internet"], "city": found.title() if found else city.strip().title()}
+    if found: u["city_tier"] = CITY_TIER[found]
+    if tier: u["city_tier"] = tier
+    if has_gstin is not None: u["has_gstin"] = has_gstin
+    if no_fibre: u.update(no_fibre=True, link_pref="5g")
+    _merge(s, u)
+    if has_gstin is None: s.profile.has_gstin = False if question_matters("has_gstin", s.profile) else None
+    return _next_step(s, lang)
+
+
+def quick_replies(s: State) -> list[tuple[str, str]]:
+    """Tappable answers for the question just asked, as (label, what gets sent)."""
+    if s.rec and s.rec.quote: return []
+    asked = s.awaiting or ("business_type" if not s.history else None)  # the welcome message asks this
+    return U.QUICK.get(asked, {}).get(s.profile.language, [])
+
+
+def _next_step(s: State, lang: str, client=None) -> str:
+    """Ask what's still missing, or give the plan."""
+    f = None if s.profile.city_tier == 3 else next_question(s)
+    if f:
+        s.awaiting = f; s.rec = None
+        if f not in s.asked: s.asked.append(f)
+        return _question(s, f, lang)
+    s.awaiting = None; s.stuck = 0
+    s.rec = recommend(s.profile)
+    if s.rec.handoff: _do_handoff(s, s.rec.handoff)
+    draft = render_rec(s)
+    return _polish(draft, s, client) if s.rec.quote else draft
+
+
+def _intent_reply(s: State, read: dict, lang: str, moved: bool, client=None) -> str | None:
+    """Act on what the owner meant when no pattern caught it. The model only spots the intent: code decides what happens."""
+    i = read.get("intents", set())
+    if "WANTS_HUMAN" in i:
+        _do_handoff(s, "customer_request")
+        return _lang_text("handoff", lang)
+    if read.get("sites_differ"):
+        _do_handoff(s, "sites_differ")
+        return _lang_text("custom", lang)
+    if "SAVE_FOR_LATER" in i:
+        s.awaiting, s.stuck = None, 0
+        return _lang_text("pause", lang)
+    parts = []
+    if "RULE_BYPASS" in i: parts.append(U.TALK["rules_fixed"][lang])
+    if "DISCOUNT" in i: parts.append(_lang_text("discount", lang))
+    if "COMPETITOR" in i: parts.append(U.TALK["competitor"][lang])
+    if "OFF_TOPIC" in i: parts.append(_lang_text("off_topic", lang))
+    if "UNKNOWN_PRODUCT" in i and read.get("thing"):
+        parts.append(_lang_text("nocat", lang, label=read["thing"]))
+        near = NEED_PRODUCT.get(read.get("closest"))
+        if near: parts.append(_lang_text("near", lang, name=catalogue()[near].name, desc=catalogue()[near].description.lower()).strip())
+    if "READY_TO_BUY" in i and s.rec and s.rec.quote and not moved: parts.append(_lang_text("proceed", lang))
+    if not parts: return None
+    return _join(*parts, _next_step(s, lang, client) if moved else ("" if s.rec and s.rec.quote and "READY_TO_BUY" in i else _steer(s)))
+
+
 def _steer(s: State) -> str:
     if s.rec and s.rec.quote:
         return _lang_text("price_is", s.profile.language, m=s.rec.quote.monthly)
@@ -573,21 +694,46 @@ def _join(*a): return " ".join(x for x in a if x)
 
 def turn(s: State, raw: str, llm_client=None) -> str:
     """One advisor turn. Redaction runs before history, regex or LLM see the text."""
-    typed = G.GSTIN.search(raw)
-    rec = registry.lookup_gstin(typed.group().upper())[0] if typed else None
+    llm.ai_off.set(bool(getattr(s, "no_ai", False)))  # the owner can turn AI reading off; code then handles the chat
+    typed = G.GSTIN.search(G.latin_digits(raw))
+    rec = registry.lookup_gstin(re.sub(r"[\s.-]", "", typed.group()).upper())[0] if typed else None
     bad_gstin = bool(typed) and (rec is None or rec["status"] != "Active")
     text, found = G.redact(raw)
     if bad_gstin: text = text.replace("[GSTIN removed]", "[inactive GSTIN removed]")
     s.restarted = False
     if not found and G.RESTART.search(text) and not G.NOT_RESTART.search(text) and len(text.split()) <= 8:
         return _restart(s, text)
-    s.profile.language = detect_language(text, s.profile.language)
+    written_in = U.script_language(text)
+    if written_in and llm.client() is not None: s.reply_lang = written_in
+    elif re.search(r"[A-Za-z]{2}", text) or (s.reply_lang != "mr" and DEVANAGARI.search(text)): s.reply_lang = None
+    s.profile.language = "en" if s.reply_lang and s.reply_lang != "mr" else detect_language(text, s.profile.language)
     lang = s.profile.language
-    reply = _route(s, text, found, lang, llm_client)
+    before = s.profile.model_copy()
+    if len(s.history) >= MAX_TURNS * 2:
+        _do_handoff(s, "too_many_turns")
+        reply = _lang_text("handoff", lang)
+    else:
+        reply = _route(s, text, found, lang, llm_client)
+    if not s.restarted: reply = _join(_changes(before, s.profile, lang), reply)
     if bad_gstin: reply = _join(_lang_text("gst_bad", lang), reply)
     if "[contact removed]" in text: reply = _join(_lang_text("contact_form", lang), reply)
+    if s.reply_lang: reply = _translate(reply, s.reply_lang) or reply
     s.history += [("user", text), ("assistant", reply)]
     return reply
+
+
+MAX_TURNS = 40  # a chat this long isn't converging, so a person takes over
+
+
+def _changes(before: Profile, after: Profile, lang: str) -> str:
+    """Say back any answer that just changed, because it may be a slip and not a correction."""
+    parts = []
+    for k, words in U.CHANGE_WORDS.items():
+        a, b = getattr(before, k), getattr(after, k)
+        if a not in (None, "other") and b is not None and a != b:
+            parts.append(U.TALK["changed"][lang].format(what=words[_col(lang)], a=a, b=b))
+    if before.has_gstin is not None and after.has_gstin is not None and before.has_gstin != after.has_gstin: parts.append(U.TALK["changed_gst"][lang])
+    return " ".join(parts)
 
 
 def _restart(s: State, text: str) -> str:
@@ -635,13 +781,15 @@ def _route(s, text, found, lang, llm_client):
         u = extract_profile(re.sub(r"\[[^\]]*removed\]", "", text), s.profile, None)
         _merge(s, u)
         return _join(_lang_text("pii", lang), _steer(s))
-    if G.REGIONAL.search(text) and not DEVANAGARI.search(text):
+    if G.REGIONAL.search(text) and not DEVANAGARI.search(text) and llm.client() is None:
         return _join(TXT["regional"]["en"], _steer(s))
     if G.INJECTION.search(text):
         return _join(_lang_text("injection", lang), _steer(s))
     if G.FRUSTRATED.search(text):
         _do_handoff(s, "frustration")
         return _lang_text("handoff", lang)
+    if U.COMPETITOR.search(text):
+        return _join(U.TALK["competitor"][lang], _steer(s))
     if G.DISCOUNT.search(text) and not G.PROMISE_ASK.search(text) and (re.search(r"discount|% ?off|छूट|डिस्काउंट", text, re.I) or not re.search(r"\d+\s*(staff|employee|people|log\b)", text, re.I)):
         rest = _rest_of(s, text, G.DISCOUNT, found, lang, llm_client)
         # Beside a plan, the shorter words: the reply check rightly objects to "discount" next to a price.
@@ -660,6 +808,33 @@ def _route(s, text, found, lang, llm_client):
         return _join(WHY_FIELD[field_asked][{"en": 0, "hi": 1, "hinglish": 2}.get(lang, 0)], Q[field_asked][lang])
     miss = G.out_of_catalogue(text)
     u = extract_profile(text, s.profile, s.awaiting)
+    if U.insists_without_gst(text) and (item := next((NEED_PRODUCT[n] for n in u.get("needs", []) if n in NEED_PRODUCT and catalogue()[NEED_PRODUCT[n]].requires_gstin), None)):
+        # A rule stated plainly: nothing about the owner's real GST status changes because of how they asked.
+        option = NO_GST_OPTION.get(item)
+        return _join(U.TALK["needs_gst"][lang].format(name=catalogue()[item].name), U.TALK["no_gst_option"][lang].format(name=catalogue()[option].name) if option else "", "" if s.rec and s.rec.quote else _steer(s))
+    if not miss and U.declines(text):
+        fields = U.declined_fields(text, s.awaiting)
+        if fields:
+            notes = []
+            for k in ("needs", "declined", "business_type", "city", "city_tier", "current_setup"):
+                if k in u and k not in fields: _merge(s, {k: u[k]})
+            if fields & {"employees", "locations"}:
+                _merge(s, {k: v for k, v in (("employees", s.profile.employees or 1), ("locations", s.profile.locations or 1))})
+                notes.append(U.TALK["assume_size"][lang])
+            if "has_gstin" in fields:
+                _merge(s, {"has_gstin": False}); notes.append(U.TALK["assume_gst"][lang])
+            if "city" in fields and not s.profile.city:
+                s.awaiting = "city"; s.stuck += 1
+                if s.stuck >= 2:
+                    _do_handoff(s, "city_declined")
+                    return _lang_text("handoff", lang)
+                return _join(*notes, U.TALK["need_city"][lang], Q["city"][lang])
+            if notes or fields & {"business_type", "needs"}:
+                if "business_type" in fields: _merge(s, {"business_type": s.profile.business_type or "other"})
+                if "needs" in fields:
+                    s.awaiting = "needs_confirm"
+                    return _lang_text("suggest", lang)
+                return _join(*notes, _next_step(s, lang, llm_client))
     if not miss and (said := _topic_reply(s, text, u, lang)):
         return said
     if G.CONFUSED.search(text):
@@ -707,8 +882,13 @@ def _route(s, text, found, lang, llm_client):
     _merge(s, u)
     # Save free-tier quota: skip when nothing is missing, or for short answers like "6" or "Delhi".
     before = s.profile.model_dump()
-    if next_question(s) and len(text.split()) > 3 and not U.is_question(text): _merge_llm(s, text, u)  # a question isn't an answer: "does the godown count?" must not become 2 sites
+    plan_up = bool(s.rec and s.rec.quote)
+    read = _merge_llm(s, text, u) if (next_question(s) or (plan_up and not u) or s.reply_lang) and (len(text.split()) > 3 or s.reply_lang) and (not U.is_question(text) or s.reply_lang) else {}  # a question isn't an answer: "does the godown count?" must not become 2 sites
+    if U.sites_differ(text): read = {**read, "sites_differ": True}
     moved = bool(u) or s.profile.model_dump() != before
+    if read:  # what the model noticed that the patterns above didn't
+        said = _intent_reply(s, read, lang, moved, llm_client)
+        if said: return said
     if u.get("only") or (s.profile.needs and set(s.profile.needs) <= {"mobile_line", "mobile_premium"}):
         # A mobile-only request needs no site count; a staff count of 1 satisfies every P07 rule.
         s.profile.locations = s.profile.locations or 1
@@ -753,5 +933,6 @@ def _route(s, text, found, lang, llm_client):
     s.awaiting = None; s.stuck = 0
     s.rec = recommend(s.profile)
     if s.rec.handoff: _do_handoff(s, s.rec.handoff)
+    elif s.handoff in ("multi_site", "large_account", "needs_scoping"): s.handoff = None  # the owner corrected the fact behind it
     draft = render_rec(s)
     return _polish(draft, s, llm_client) if s.rec.quote else draft

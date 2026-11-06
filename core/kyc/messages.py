@@ -66,6 +66,7 @@ PASSED = {
  "legal_name": ("gst", "Legal name matches registry", "कानूनी नाम रजिस्ट्री से मेल खाता है"),
  "gst_details": ("gst", "Trade name, address, business type and date match registry", "व्यापार का नाम, पता, बिज़नेस का प्रकार और तारीख रजिस्ट्री से मेल खाते हैं"),
  "udyam_match": ("udyam", "Udyam number and name match registry", "Udyam नंबर और नाम रजिस्ट्री से मेल खाते हैं"),
+ "udyam_on_file": ("udyam", "The Udyam registry has a record for this business, so a person can confirm this quickly", "Udyam रजिस्ट्री में इस बिज़नेस का रिकॉर्ड है, इसलिए कोई व्यक्ति इसकी पुष्टि जल्दी कर सकता है"),
  "udyam_place": ("udyam", "City and state match registry", "शहर और राज्य रजिस्ट्री से मेल खाते हैं"),
  "udyam_gst": ("udyam", "Enterprise name matches the GST trade name", "उद्यम का नाम GST वाले व्यापार के नाम से मेल खाता है"),
  "bill_recent": ("bill", "Address proof is recent (within {max} days)", "पते का प्रमाण हाल का है ({max} दिन के भीतर)"),

@@ -29,7 +29,8 @@ def setup(title: str):
     # A chat that began before a deploy can miss newer fields: start it fresh instead of crashing.
     if any(not hasattr(st.session_state.advisor, f) for f in State.__dataclass_fields__):
         st.session_state.advisor, st.session_state.chat = State(), []
-    from core import orders
+    from core import orders, retention
+    retention.run_once()
     if st.session_state.get("order_id") and not orders.get(st.session_state.order_id):  # the database restarted under this session
         for k in ("order_id", "accepted_items"): st.session_state.pop(k, None)
     st.session_state.setdefault("ui_lang", "en")
@@ -73,9 +74,18 @@ def consent_panel(t: dict) -> None:
     label = lambda p: consent.PURPOSE_LABEL.get(p, {}).get(lang, p)
     for r in consent.records(user()):
         st.caption(f"{label(r['purpose'])} · {r['notice_version']} · {t['granted']} {r['granted_at'][:16].replace('T', ' ')} UTC" + (f" · {t['withdrawn']} {r['withdrawn_at'][:16].replace('T', ' ')} UTC" if r["withdrawn_at"] else ""))
+    held = consent.what_we_hold(user())
+    say = (lambda en, h: h if lang == "hi" else en)
+    lines = [say(f"Consent records: {held['consents']}", f"सहमति रिकॉर्ड: {held['consents']}"), say(f"Orders: {held['orders']}", f"ऑर्डर: {held['orders']}")]
+    if held["kyc"]: lines.append(say(f"KYC result: {t['verdicts'][held['kyc']]}", f"KYC परिणाम: {t['verdicts'][held['kyc']]}"))
+    if held["gstin"]: lines.append(f"GSTIN: {held['gstin']}")
+    if held["id"]: lines.append(f"ID: {held['id']}")
+    if held["callback"]: lines.append(say("Your call-back details", "आपकी कॉल-बैक जानकारी"))
+    st.markdown(say("**What we hold about you**  \n", "**आपके बारे में हमारे पास क्या है**  \n") + "  \n".join(lines) + say("  \nNo document images are kept.", "  \nदस्तावेज़ों की तस्वीरें नहीं रखी जातीं।"))
     if consent.records(user()):  # a BOM so Hindi opens correctly in basic text viewers
         st.download_button(t["receipt"], consent.receipt_text(user(), lang).encode("utf-8-sig"), "accel_business_consent_receipt.txt", "text/plain", key="consent_receipt")
     for p in sorted(consent.active(user())):
+        if p in consent.WITHDRAW_EFFECT: st.caption(consent.WITHDRAW_EFFECT[p][lang])
         if st.button(f"{t['withdraw']}: {label(p)}", key=f"w_{p}"):
             consent.withdraw(user(), p)
             if p == consent.KYC:  # deleted, so none of it may stay on screen or in the session

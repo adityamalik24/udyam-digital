@@ -10,7 +10,8 @@ from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 from .catalogue import DATA
 
-CAT = ["lead_source", "segment", "city_tier", "has_gstin", "has_udyam", "annual_turnover_band", "current_internet", "current_provider", "preferred_language", "contact_role"]
+# Language is left out on purpose: a lead shouldn't rank lower for the language its owner speaks.
+CAT = ["lead_source", "segment", "city_tier", "has_gstin", "has_udyam", "annual_turnover_band", "current_internet", "current_provider", "contact_role"]
 NUM = ["employee_count", "num_sites", "monthly_telecom_spend_inr"]
 # Drops caused by our process, where a call can change the result. Excludes refusals, price and bad numbers.
 RECOVERABLE = {"Owner had no time for a visit", "Visit not scheduled by sales", "Quote too complex to understand", "Quote took too long to arrive",

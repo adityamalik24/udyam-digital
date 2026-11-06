@@ -5,6 +5,11 @@ from dataclasses import dataclass, field
 import numpy as np
 from PIL import Image, ImageFilter, ImageOps
 import pytesseract
+from rapidfuzz import fuzz
+
+class OcrUnavailable(Exception):
+    """Tesseract can't run here. Nothing has been read, so no verdict can be given."""
+
 
 OCR_TIMEOUT = 20      # seconds per Tesseract call, so a junk upload can't hang the page
 MAX_SIDE = 3000       # larger photos are scaled down first; OCR gains nothing above this
@@ -21,6 +26,13 @@ DOC_LABELS = {
     "bill": {"consumer": r"Consumer no\.?", "billed_to": r"Billed to", "address": r"Supply address", "date": r"Bill date"},
     "id": {"name": r"Name", "designation": r"Designation", "business": r"For business", "id_no": r"ID no\.?", "valid_till": r"Valid till"},
 }
+
+
+PLAIN_LABELS = {"gst": {"gstin": "GSTIN", "legal_name": "Legal name", "trade_name": "Trade name", "constitution": "Constitution", "address": "Address of principal", "address2": "place of business", "liability_date": "Date of liability"},
+                "udyam": {"udyam": "Udyam reg. number", "name": "Enterprise name", "activity": "Major activity", "reg_date": "Date of registration"},
+                "bill": {"consumer": "Consumer no.", "billed_to": "Billed to", "address": "Supply address", "date": "Bill date"},
+                "id": {"designation": "Designation", "business": "For business", "valid_till": "Valid till"}}
+LABEL_MIN = 74  # "Legai narne" reads about 76; "Trade name" against "Legal name" stays under this
 
 
 @dataclass
@@ -88,6 +100,8 @@ def clean_up(img: Image.Image, sharp: float) -> Image.Image:
 def _text(img: Image.Image, config: str) -> str:
     try:
         return pytesseract.image_to_string(img, config=config, timeout=OCR_TIMEOUT)
+    except pytesseract.TesseractNotFoundError as e:
+        raise OcrUnavailable from e
     except RuntimeError:  # pytesseract raises this on timeout: treat as nothing read
         return ""
 
@@ -144,6 +158,8 @@ def read_gstin_line(ink: Image.Image, page: Image.Image | None = None, straight:
     from .validators import gstin_problem
     try:
         d = pytesseract.image_to_data(ink, config="--psm 6", output_type=pytesseract.Output.DICT, timeout=OCR_TIMEOUT)
+    except pytesseract.TesseractNotFoundError as e:
+        raise OcrUnavailable from e
     except RuntimeError:
         return "", []
     idx = next((i for i, t in enumerate(d["text"]) if t.strip().upper().startswith("GSTIN")), None)
@@ -185,6 +201,17 @@ def parse(text: str, doc: str) -> dict[str, str]:
                 # Bill addresses wrap on to an unlabelled next line
                 if doc == "bill" and key == "address" and i + 1 < len(lines) and not re.match("Bill date", lines[i + 1], re.I):
                     out[key] = val + lines[i + 1].strip()
+                break
+    # A label OCR slightly misread ("Legai narne") is still that label, but only a near match counts.
+    for key, label in PLAIN_LABELS[doc].items():
+        if key in out: continue
+        n = len(label.split())
+        for i, line in enumerate(lines):
+            words = line.split()
+            if len(words) >= n and fuzz.ratio(" ".join(words[:n]).lower(), label.lower()) >= LABEL_MIN:
+                val = " ".join(words[n:]).strip()
+                if not val and doc == "id" and i + 1 < len(lines): val = lines[i + 1].strip()
+                out[key] = val
                 break
     if doc == "gst":
         out["address"] = (out.get("address", "") + out.pop("address2", "")).strip()

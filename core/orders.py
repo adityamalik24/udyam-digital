@@ -84,12 +84,58 @@ def reschedule(oid: int, new: date) -> None:
         raise ValueError("can only reschedule between scheduling and installation")
     if new < earliest_install(o):
         raise ValueError("date is earlier than we can install")
-    if new > TODAY + timedelta(days=MAX_RESCHEDULE_DAYS):
+    if new > max(TODAY + timedelta(days=MAX_RESCHEDULE_DAYS), date.fromisoformat(o["install_date"])):
         raise ValueError("date is too far ahead")
     if new.isoformat() == o["install_date"]: return
     with db.conn() as c:
         c.execute("INSERT INTO order_changes(order_id,old_date,new_date,ts) VALUES(?,?,?,?)", (oid, o["install_date"], new.isoformat(), db.now()))
         c.execute("UPDATE orders SET install_date=? WHERE id=?", (new.isoformat(), oid))
+
+
+DELAY_DAYS = 7  # demo only: how far a simulated delay moves the date
+DELAY_REASONS = ("fibre", "partner", "access")
+FIBRE_IDS = {"P01", "P02", "P03"}
+
+
+def mark_delay(oid: int, reason: str) -> None:
+    """Record a delay with its reason and a new date, so the owner hears it here instead of having to call."""
+    o = get(oid)
+    if reason not in DELAY_REASONS: raise ValueError("unknown delay reason")
+    if not 3 <= o["stage_index"] < 5: raise ValueError("can only delay between scheduling and installation")
+    new = date.fromisoformat(o["install_date"]) + timedelta(days=DELAY_DAYS)
+    with db.conn() as c:
+        c.execute("INSERT INTO order_delays(order_id,reason,old_date,new_date,ts) VALUES(?,?,?,?,?)", (oid, reason, o["install_date"], new.isoformat(), db.now()))
+        c.execute("UPDATE orders SET install_date=? WHERE id=?", (new.isoformat(), oid))
+
+
+def delays(oid: int) -> list[dict]:
+    with db.conn() as c:
+        return [dict(r) for r in c.execute("SELECT reason,old_date,new_date,ts FROM order_delays WHERE order_id=? ORDER BY id", (oid,))]
+
+
+def needs_gstin(o: dict) -> bool:
+    """Whether anything on this order can only be sold with a GSTIN. If not, KYC asks only for what this order needs."""
+    from .catalogue import catalogue
+    return any(catalogue()[p].requires_gstin for p in json.loads(o["items"]))
+
+
+def product_dates(o: dict) -> list[tuple[str, date]]:
+    """When each product should be in, from its own catalogue install time. A delay moves only what was holding things up."""
+    from .catalogue import catalogue
+    cat, items = catalogue(), json.loads(o["items"])
+    planned = {p: TODAY + timedelta(days=cat[p].install_days) for p in items}
+    last = max(planned.values(), default=TODAY)
+    moved = date.fromisoformat(o["install_date"]) if o.get("install_date") else None
+    return [(p, moved if moved and d == last and moved > d else d) for p, d in planned.items()]
+
+
+def updates_log(o: dict) -> list[dict]:
+    """What a real system would have sent the owner, from the order's own record."""
+    return [{"stage": e["stage"], "ts": e["ts"]} for e in o["events"]] + [{"stage": "delay", "ts": d["ts"], "new_date": d["new_date"]} for d in delays(o["id"])]
+
+
+def can_switch_to_airfiber(o: dict) -> bool:
+    return bool(FIBRE_IDS & set(json.loads(o["items"])))
 
 
 def changes(oid: int) -> list[dict]:
