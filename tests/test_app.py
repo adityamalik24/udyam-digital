@@ -464,3 +464,93 @@ def _state(*msgs):
     s = State()
     for m in msgs: turn(s, m)
     return s
+
+
+def _verified(k, who):
+    from core import consent
+    consent.grant(who, consent.KYC, "en")
+    p = _page("4_KYC.py", who)
+    if k != "K01": p.selectbox[0].set_value(k).run()
+    next(b for b in p.button if b.label == "Verify").click().run(); assert not p.exception
+    return p
+
+
+def test_kyc_result_is_labelled_explained_and_broken_down_by_document():
+    p = _verified("K07", "kp1")
+    assert any("Result for" in m.value and "K07" in m.value for m in p.markdown)
+    assert any("Needs review" in w.value and "legal name" in w.value for w in p.warning)
+    assert any("What happens next" in m.value for m in p.markdown)
+    labels = [e.label for e in p.expander]
+    assert "⚠️ GST certificate" in labels and "✅ Udyam certificate" in labels and "✅ Signatory ID" in labels and "✅ Address proof" in labels
+    gst = next(e for e in p.expander if e.label == "⚠️ GST certificate"); assert gst.proto.expanded
+    shown = " ".join(m.value for m in gst.markdown)
+    assert "Shri Physio" in shown and "Neelgiri Physio Clinic" in shown  # what was read, trade name included, so the owner can spot it
+    p.selectbox[0].set_value("K03").run()
+    assert any("K07" in m.value for m in p.markdown)  # the old result stays labelled with who it belongs to
+
+
+def test_kyc_page_in_hindi_has_no_english_reason_and_masks_ids():
+    from core import consent
+    consent.grant("kp2", consent.KYC, "hi")
+    p = _page("4_KYC.py", "kp2", ui_lang="hi")
+    p.selectbox[0].set_value("K11").run()
+    next(b for b in p.button if b.label == "सत्यापित करें").click().run(); assert not p.exception
+    assert any("जाँच ज़रूरी" in w.value and "257 दिन" in w.value for w in p.warning)
+    assert any("✓ " in m.value and "रजिस्ट्री" in m.value for m in p.markdown)
+    assert not [w for w in p.warning if "address proof" in w.value.lower()]
+    blob = " ".join(m.value for m in p.markdown) + " ".join(x.value for x in p.caption)
+    assert "SYN-ID" not in blob and "03KGZXT1320R1ZZ" not in blob and "••" in blob
+
+
+def test_kyc_language_can_change_after_the_result():
+    p = _verified("K11", "kp3"); assert any("days old" in w.value for w in p.warning)
+    p.sidebar.radio[0].set_value("hi").run(); assert not p.exception
+    assert any("दिन पुराना" in w.value for w in p.warning)
+
+
+def test_nothing_identifying_reaches_the_database():
+    import sqlite3
+    from core import db
+    _verified("K03", "kp4"); _verified("K07", "kp5"); _verified("K06", "kp6")
+    with sqlite3.connect(db.DB_PATH) as conn:
+        rows = conn.execute("SELECT verdict,reason,fields FROM kyc WHERE user IN ('kp4','kp5','kp6')").fetchall()
+    blob = str(rows); assert len(rows) == 3
+    for secret in ("447889", "SYN-ID", "27XUIXG0767D1ZP", "UDYAM-", "Joseph Singh", "Neha Banerjee", "Shri Physio"): assert secret not in blob, secret
+
+
+def test_unverified_kyc_reaches_the_partner_queue_without_names_and_leaves_on_withdrawal():
+    from core import consent
+    _verified("K07", "queue1"); _verified("K03", "queue2")
+    q = AppTest.from_file(str(ROOT / "app/pages/6_Partner_Queue.py"), default_timeout=60).run(); assert not q.exception
+    table = next(d.value for d in q.dataframe if "Check" in d.value.columns)
+    assert (table["Ref"] == "…eue1").any() and not (table["Ref"] == "…eue2").any()
+    row = table[table["Ref"] == "…eue1"].iloc[0]
+    assert row["Check"] == "GST certificate" and "Needs review" == row["Result"] and "Neha" not in row["Why"]
+    consent.withdraw("queue1", consent.KYC); q.run()
+    assert not any("Check" in d.value.columns and (d.value["Ref"] == "…eue1").any() for d in q.dataframe)
+
+
+def test_fixing_a_result_clears_it_from_the_queue():
+    from core import consent
+    p = _verified("K11", "queue3")
+    assert any(r["user"] == "queue3" for r in consent.kyc_queue())
+    p.selectbox[0].set_value("K03").run(); next(b for b in p.button if b.label == "Verify").click().run()
+    assert not any(r["user"] == "queue3" for r in consent.kyc_queue())
+
+
+def test_partner_queue_self_check_matches_our_review():
+    q = AppTest.from_file(str(ROOT / "app/pages/6_Partner_Queue.py"), default_timeout=180).run()
+    next(b for b in q.button if b.label == "Run the self-check").click().run(); assert not q.exception
+    assert any("12 of 12" in s.value for s in q.success)
+
+
+def test_verified_without_a_quote_points_to_the_quote_and_can_not_pay():
+    p = _verified("K03", "kp7")
+    assert any("Accept a quote" in i.value for i in p.info) and not [b for b in p.button if "Pay first" in b.label]
+
+
+def test_result_from_before_a_deploy_does_not_crash():
+    from core import consent
+    consent.grant("kp8", consent.KYC, "en"); consent.save_kyc("kp8", "verified", "ok", "{}")
+    p = _page("4_KYC.py", "kp8", kyc_result={"verdict": "verified", "reason": "old", "passed": [], "fields": {}})
+    assert not p.exception and not p.expander

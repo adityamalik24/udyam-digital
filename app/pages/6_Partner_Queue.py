@@ -2,7 +2,9 @@ import sys, json; from pathlib import Path; sys.path.insert(0, str(Path(__file__
 import common as c
 import pandas as pd
 import streamlit as st
-from core import callback, db
+from core import callback, consent, db
+from core.kyc import messages as KM
+from core.kyc.pipeline import SPECIMEN_REVIEW, verify_specimen
 from core.kyc.validators import mask
 from core.propensity import score_leads
 c.setup("Partner queue")
@@ -14,6 +16,30 @@ st.caption("Contact details are masked because this demo page has no login. A re
 cb = [{"When": r["ts"], "Name": r["name"][:1] + "…" if r["name"] else "", "Phone": mask(r["phone"]), "Email": mask(r["email"]), "Best time": r["best_time"], "Why": REASON.get(r["reason"], r["reason"]), "Business": r["profile"].get("business_type"), "City": r["profile"].get("city"), "Needs": ", ".join(r["profile"].get("needs", []))} for r in callback.queue()]
 if cb: st.dataframe(pd.DataFrame(cb), hide_index=True, use_container_width=True)
 else: st.info("No call-back requests yet.")
+st.markdown("**KYC waiting for a person**")
+st.caption("Anything the automatic check couldn't verify. Nothing here is final until a person has looked at it. Withdrawing consent removes the entry.")
+VERDICT = {"needs_review": "Needs review", "rejected": "Rejected"}
+kq = []
+for r in consent.kyc_queue():
+    codes = json.loads(r["fields"] or "{}").get("issues", [])
+    docs = list(dict.fromkeys(KM.DOC_NAME[KM.issue_doc(x)]["en"] for x in codes if x in KM.ISSUE))
+    kq.append({"When": r["ts"], "Ref": "…" + r["user"][-4:], "Result": VERDICT.get(r["verdict"], r["verdict"]), "Check": ", ".join(docs), "Why": r["reason"]})
+if kq: st.dataframe(pd.DataFrame(kq), hide_index=True, use_container_width=True)
+else: st.info("Nothing waiting. Results that aren't verified appear here.")
+with st.expander("KYC self-check on the 12 specimen applicants"):
+    st.caption("Runs the live KYC code on this server and compares it with our own manual review of the images (not the judges' key). Nothing is stored.")
+    if st.button("Run the self-check", use_container_width=True):
+        bar, out = st.progress(0.0), []
+        for n, (k, (want, code)) in enumerate(SPECIMEN_REVIEW.items()):
+            bar.progress(n / len(SPECIMEN_REVIEW), f"Checking {k}...")
+            res = verify_specimen(k); codes = [x.code for x in res.issues]
+            out.append({"Applicant": k, "Same as review": "✓" if res.verdict == want and (code is None or code in codes) else "✗", "Result": res.verdict, "Expected": want, "Why": res.reason})
+        bar.empty(); st.session_state.selfcheck = out
+    if st.session_state.get("selfcheck"):
+        done = st.session_state.selfcheck
+        same = sum(x["Same as review"] == "✓" for x in done)
+        (st.success if same == len(done) else st.error)(f"{same} of {len(done)} match our review.")
+        st.dataframe(pd.DataFrame(done), hide_index=True, use_container_width=True)
 st.markdown("**Advisor hand-offs**")
 rows = []
 for l in db.list_leads():

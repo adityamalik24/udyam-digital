@@ -53,8 +53,8 @@ NOTICE = {
 DOCS_NEEDED = {
  "gst": {"en": ("GST certificate", "shows your business is registered and active."),
          "hi": ("GST प्रमाणपत्र", "दिखाता है कि आपका बिज़नेस पंजीकृत और सक्रिय है।")},
- "udyam": {"en": ("Udyam certificate", "confirms your enterprise's number and name."),
-           "hi": ("Udyam प्रमाणपत्र", "आपके उद्यम का नंबर और नाम पुष्ट करता है।")},
+ "udyam": {"en": ("Udyam certificate", "confirms your enterprise's number, name and location."),
+           "hi": ("Udyam प्रमाणपत्र", "आपके उद्यम का नंबर, नाम और जगह पुष्ट करता है।")},
  "id": {"en": ("Signatory ID", "shows who signs for the business. It must be for this business and not expired. If someone else signs, get it from them first."),
         "hi": ("हस्ताक्षरकर्ता की ID", "दिखाती है कि बिज़नेस के लिए कौन हस्ताक्षर करता है। यह इसी बिज़नेस की हो और इसकी अवधि बाकी हो। अगर कोई और हस्ताक्षर करता है, तो पहले उनसे ले लें।")},
  "bill": {"en": ("Address proof", "a bill under 90 days old, in your business's name and at its registered address."),
@@ -113,6 +113,13 @@ def receipt_text(user: str, language: str) -> str:
 def save_kyc(user: str, verdict: str, reason: str, fields_json: str) -> None:
     with db.conn() as c:
         c.execute("INSERT INTO kyc(user,verdict,reason,fields,ts) VALUES(?,?,?,?,?)", (user, verdict, reason, fields_json, db.now()))
+
+
+def kyc_queue() -> list[dict]:
+    """Each person's latest KYC result that a person still has to look at. Reasons and codes hold no names or numbers."""
+    with db.conn() as c:
+        rows = c.execute("SELECT user,verdict,reason,fields,ts FROM kyc WHERE id IN (SELECT MAX(id) FROM kyc GROUP BY user) AND verdict<>'verified' ORDER BY id DESC").fetchall()
+    return [dict(r) for r in rows]
 
 
 def latest_kyc(user: str) -> dict | None:

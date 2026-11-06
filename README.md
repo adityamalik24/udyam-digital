@@ -35,6 +35,12 @@ Stretch goal: `Partner queue` lists advisor hand-offs and ranks leads lost to ou
 | Quote valid 15 days | Our assumption; the data doesn't specify one |
 | Udyam date and activity are not checked | They disagree with the registry for nearly all applicants including clean ones, so they look like generator noise |
 | Missing Udyam certificate = needs_review | The brief lists it as a required KYC document |
+| `rejected` needs hard evidence | An inactive registration, or the same non-look-alike GSTIN substitution in every read of a straight, good-resolution image. A tilted, small or noisy image goes to a person instead, so a poor photo can't get a clean applicant rejected |
+| A read can only confirm a GSTIN character at full length, and can't outvote a majority on a good image | Both rules exist because a stress test let forgeries through without them |
+| Messages never show a registry value | A forger shouldn't learn from our reply what the document should say. Stored reasons also hold no names or numbers |
+| Every printed GST field is compared with the registry | All 12 applicants agree on them apart from the planted problems, so this adds no false alarms and catches an edited trade name, address, business type or date |
+| No record of the signatory means needs_review | When there's nothing to compare the name with, we don't vouch for it. No specimen hits this |
+| Streamlit pinned to the tested version | `use_container_width` is due for removal, so an unpinned rebuild could break every page |
 | "Clinic wants email" adds a link and Endpoint Security | Our scenario 2. Goes beyond rule 4 (stated needs only): all 138 professional-office customers with email also bought a link, 67 bought security. Saying "we already have internet" removes the link |
 | CCTV and similar still add a link when the owner has one | The catalogue requires a listed product in the same bundle, and we can't confirm a link from another provider |
 | A typed GSTIN is looked up, then discarded | Only an active registry record counts as having a GSTIN; the number is never stored or repeated |

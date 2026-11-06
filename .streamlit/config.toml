@@ -1,0 +1,2 @@
+[server]
+maxUploadSize = 10  # MB, the same limit the KYC page states and core/kyc/pipeline.py enforces
