@@ -418,3 +418,143 @@ def test_only_a_factory_is_labelled_a_factory_in_the_queue():
 def test_promise_request_with_answers_works_in_hindi_and_hinglish(msg, lang):
     s = advisor.State(); r = advisor.turn(s, msg)
     assert s.profile.language == lang and s.profile.locations == 1 and s.rec and s.rec.quote and ("promise" in r or "वादा" in r)
+
+
+# --- Understanding what the owner actually said ---
+def _talk(*msgs, client=None):
+    s = advisor.State(); r = ""
+    for m in msgs: r = advisor.turn(s, m, client)
+    return s, r
+
+class _Say:
+    """A fake Gemini that says the given lines in turn."""
+    def __init__(self, *lines): self.lines, self.models, self.calls = list(lines), self, 0
+    def generate_content(self, **k):
+        self.calls += 1
+        return NS(text=self.lines.pop(0) if self.lines else "")
+
+
+@pytest.mark.parametrize("msg,lang,word", [("what's the difference between fibre and airfiber?", "en", "wireless 5G"), ("fibre aur airfiber mein kya farak hai?", "hinglish", "wireless 5G"), ("फाइबर और एयरफाइबर में क्या अंतर है?", "hi", "वायरलेस 5G")])
+def test_comparing_links_gets_an_answer_and_never_changes_the_flow(msg, lang, word):
+    from core.catalogue import catalogue
+    s, r = _talk("clinic in Delhi, want internet", msg)
+    assert word in r and f"{catalogue()['P01'].monthly:,}" in r and f"{catalogue()['P04'].monthly:,}" in r
+    assert s.profile.link_pref is None and s.awaiting == "employees"
+    assert advisor.turn(s, "6") and s.profile.employees == 6 and s.profile.locations is None  # the next number is still the staff count
+
+
+def test_question_during_a_plan_answers_without_reprinting_or_changing_it():
+    s, _ = _talk("Clinic in Delhi, 6 staff, one location, have GSTIN, want email")
+    before = dict(s.rec.items)
+    r = advisor.turn(s, "why is this so expensive?")
+    assert "₹2,671" in r and "₹828" in r and "2,571" in r and "smallest plan" not in r and dict(s.rec.items) == before
+    r = advisor.turn(s, "do i really need the security thing?")
+    assert "client data" in r and "remove security" in r and "smallest plan" not in r and dict(s.rec.items) == before and r.count("remove") == 1
+    r = advisor.turn(s, "which one would you pick for me?")
+    assert "stay with this plan" in r and dict(s.rec.items) == before
+    r = advisor.turn(s, "do i need failover?")
+    assert "isn't in your plan" in r and "P09" not in s.rec.items
+    assert "stay" not in advisor.turn(s, "ok thanks that makes sense") and dict(s.rec.items) == before
+
+
+def test_removing_after_asking_still_works():
+    s, _ = _talk("Clinic in Delhi, 6 staff, one location, have GSTIN, want email", "do i really need the security thing?", "remove security")
+    assert "P20" not in s.rec.items and s.rec.quote.monthly == 1927
+
+
+@pytest.mark.parametrize("msg", ["ok", "okay", "hmm", "thanks", "hi", "hello", "how are you?", "hey, how are you?", "got it", "kaise ho", "नमस्ते", "धन्यवाद"])
+def test_small_talk_is_answered_and_never_recorded_as_an_answer(msg):
+    s = advisor.State(); r = advisor.turn(s, msg)
+    assert s.profile.business_type is None and ("business" in r or "बिज़नेस" in r) and s.stuck == 0
+    s, _ = _talk("clinic", "internet"); r = advisor.turn(s, msg)
+    assert s.profile.city is None and s.stuck == 0 and s.awaiting == "city"
+
+
+def test_how_are_you_gets_a_human_reply_in_each_language():
+    assert "doing well" in _talk("how are you?")[1] and "ठीक हूँ" in _talk("आप कैसे हैं?")[1] and "theek hoon" in _talk("kaise ho")[1]
+
+
+def test_answers_are_acknowledged_before_the_next_question():
+    assert "a clinic" in _talk("clinic")[1] and "6 people" in _talk("clinic", "internet", "Delhi", "6")[1]
+    assert "Sorry" in _talk("my internet keeps dropping during billing")[1]
+    assert "6 लोग" in _talk("मेरा क्लिनिक है", "ईमेल चाहिए", "दिल्ली", "6 लोग")[1]
+
+
+def test_vague_owner_is_helped_and_you_decide_accepts_the_suggestion():
+    s, r = _talk("mera cloth ka business hai, thoda confused hu kya lena chahiye")
+    assert s.profile.business_type == "retailer" and "internet" in r and s.awaiting == "needs_confirm"
+    s, r = _talk("mera cloth ka business hai, thoda confused hu kya lena chahiye", "aap hi batao")
+    assert s.profile.needs and s.awaiting != "needs_confirm"
+    s, r = _talk("clinic", "what do you think i should get?"); assert "reliable internet" in r
+    assert _talk("clinic", "what do you think i should get?", "yes")[0].profile.needs
+
+
+def test_a_need_typed_at_the_city_question_is_not_a_city():
+    s, _ = _talk("मेरा क्लिनिक है", "ईमेल चाहिए"); advisor.turn(s, "इंटरनेट चाहिए")
+    assert s.profile.city is None
+    s, _ = _talk("clinic", "email"); advisor.turn(s, "need cctv"); assert s.profile.city is None and "cctv" in s.profile.needs
+
+
+def test_question_never_counts_as_a_failed_answer():
+    s, r = _talk("clinic in Delhi, want internet", "does the router come with it?", "can i pay yearly?", "is it good?")
+    assert s.handoff is None and s.stuck == 0 and s.awaiting == "employees" and "people" in r
+
+
+# --- The guardrail on free-form Gemini answers ---
+@pytest.mark.parametrize("bad", ["Yes, it costs ₹555 per month.", "You should take Biz Fibre 100.", "We recommend this for you.", "You'll get it free.", "It will be installed tomorrow.", "We guarantee it.", "You qualify for that.", "Use P01 for this.", "{\"employees\": 5}", "मुफ़्त मिलेगा।"])
+def test_unsafe_answer_is_regenerated_then_replaced(bad):
+    c = _Say(bad, bad); s, r = _talk("clinic in Delhi, want internet", "does the router come with it?", client=c)
+    assert bad not in r and "can't confirm" in r and c.calls == 2 and "How many people" in r
+
+
+def test_regeneration_uses_a_good_second_answer():
+    c = _Say("It costs ₹555.", "A specialist can confirm the router details."); s, r = _talk("clinic in Delhi, want internet", "does the router come with it?", client=c)
+    assert "A specialist can confirm the router details." in r and "555" not in r
+
+
+def test_a_safe_answer_may_use_catalogue_numbers_only():
+    from core.catalogue import catalogue
+    p = catalogue()["P11"]
+    c = _Say(f"{p.name} is ₹{p.monthly} and takes about {p.install_days} days."); s, r = _talk("clinic in Delhi, want internet", "how does a router work with it?", client=c)
+    assert p.name in r
+    facts = advisor._facts(s); assert not G.check_answer(f"₹{p.monthly}", facts) and G.check_answer("₹123456", facts)
+
+
+def test_gemini_down_still_answers_and_does_not_hand_off():
+    class Down:
+        @property
+        def models(self): return self
+        def generate_content(self, **k): raise TimeoutError("down")
+    llm._paused_until = 0.0
+    s, r = _talk("clinic in Delhi, want internet", "does the router come with it?", client=Down())
+    assert "can't confirm" in r and s.handoff is None
+    llm._paused_until = 0.0; llm.last_error = None
+
+
+def test_a_gemini_question_is_not_used_as_profile_facts(monkeypatch):
+    monkeypatch.setattr(llm, "client", lambda: object()); monkeypatch.setattr(llm, "extract", lambda t, *a, **k: {"locations": 2} if "godown" in t else {}); monkeypatch.setattr(llm, "acknowledge", lambda *a, **k: None); monkeypatch.setattr(llm, "answer", lambda *a, **k: None)
+    s, _ = _talk("sarees shop in Jaipur need upi", "we also have a small godown nearby, does that count?")
+    assert s.profile.locations is None
+
+
+@pytest.mark.parametrize("line", ["You have 6 people.", "Fibre is the right step for you.", "Let me suggest fibre.", "How can I help?"])
+def test_unsafe_warm_line_falls_back_to_the_plain_one(monkeypatch, line):
+    monkeypatch.setattr(llm, "client", lambda: object()); monkeypatch.setattr(llm, "extract", lambda *a, **k: {}); monkeypatch.setattr(llm, "acknowledge", lambda *a, **k: line)
+    s = advisor.State(); r = advisor.turn(s, "we run a small clinic in Delhi and need internet")
+    assert (line not in r or line == "How can I help?") and "people work there" in r
+
+
+@pytest.mark.parametrize("draft", ["नमस्ते! यह सबसे सही प्लान है: ₹1,099", "Here is a great fit at ₹1,099", "A plan just for you at ₹1,099"])
+def test_rewording_cannot_add_sales_claims(draft):
+    assert "unsupported promise" in G.check_reply(draft, price({"P01": 1}))
+
+
+def test_what_you_would_miss_is_never_shown_without_saying_what_the_other_option_is():
+    s, _ = _talk("Clinic in Delhi, 6 staff, one location, have GSTIN, want email")
+    r = advisor.turn(s, "which one would you pick for me?")
+    assert r.index("cheaper option") < r.index("What you'd miss") and "2,571" in r
+
+
+def test_rewording_cannot_add_a_greeting():
+    draft = "Biz Fibre 100: ₹1,099. **₹1,099 per month**"
+    assert "added greeting" in G.check_reply("नमस्ते, " + draft, price({"P01": 1}), draft=draft) and "added greeting" not in G.check_reply(draft, price({"P01": 1}), draft=draft)

@@ -78,7 +78,7 @@ def out_of_catalogue(text: str):
 
 AMOUNT = re.compile(r"(?:₹|\brs\.?|\binr|रु\.?)\s*([\d,]+)|(\d[\d,]{2,})\s*(?:rupees?|रुपये|rupaye|per month|a month|/month|/mo\b|प्रति माह)", re.I)
 NUMBER = re.compile(r"\d[\d,]*")
-BAD_PROMISE = re.compile(r"budget.friendly|affordable|\bbest\b|perfect|सबसे बढ़िया|सबसे अच्छा|sabse (badhiya|accha|achha)|guarantee|free upgrade|install(ed)? (by|tomorrow|today)|discount|गारंटी|मुफ़्त|मुफ्त|\bfree\b", re.I)
+BAD_PROMISE = re.compile(r"सबसे सही|sabse sahi|great fit|just for you|built for you|tailored|friendlier|budget.friendly|affordable|\bbest\b|perfect|सबसे बढ़िया|सबसे अच्छा|sabse (badhiya|accha|achha)|guarantee|free upgrade|install(ed)? (by|tomorrow|today)|discount|गारंटी|मुफ़्त|मुफ्त|\bfree\b", re.I)
 CODE = re.compile(r"\bP\d{2}\b")
 
 
@@ -101,6 +101,7 @@ def check_chat(reply: str, allowed_names: tuple[str, ...] = ()) -> list[str]:
     probs, text = [], reply
     for n in allowed_names: text = re.sub(re.escape(n), " ", text, flags=re.I)
     if len(reply.split()) > 45: probs.append("too long")
+    if "{" in reply or "}" in reply: probs.append("not a sentence")
     if re.search(r"\d|[०-९]", text): probs.append("number")
     if CHAT_BANNED.search(text): probs.append("commercial wording")
     if CODE.search(reply): probs.append("internal code")
@@ -124,6 +125,7 @@ def check_reply(reply: str, q: Quote | None, alt: Quote | None = None, excluded:
     With `draft`, every number in a rewrite must come from the checked draft, so no new dates, days or prices."""
     probs = []
     if draft is not None:
+        if re.match(r"\W*(hi\b|hello\b|namaste\b|नमस्ते)", reply, re.I) and not re.match(r"\W*(hi\b|hello\b|namaste\b|नमस्ते)", draft, re.I): probs.append("added greeting")
         known = {n.replace(",", "") for n in NUMBER.findall(draft)}
         probs += [f"number {n} not in draft" for n in NUMBER.findall(reply) if n.replace(",", "") not in known]
     allowed = allowed_amounts(q, alt)
@@ -141,6 +143,23 @@ def check_reply(reply: str, q: Quote | None, alt: Quote | None = None, excluded:
     if BAD_PROMISE.search(re.sub(r"toll[- ]free", "", reply, flags=re.I)): probs.append("unsupported promise")
     if redact(reply)[1]: probs.append("identifier in reply")
     return probs
+
+ANSWER_BANNED = re.compile(r"सबसे सही|sabse sahi|right step|right choice|discount|\bfree\b|guarantee|promise[sd]?\b|tomorrow|today|next week|recommend|suggest|you should|you must|\bbest\b|perfect|great fit|\beligible\b|\bqualif|sign up|मुफ़्त|मुफ्त|छूट|गारंटी|वादा|सुझाव|सिफ़ारिश|muft|guarantee|sifarish", re.I)
+
+
+def check_answer(reply: str, facts: str) -> list[str]:
+    """A free-form LLM answer may only repeat facts it was given, and may not decide or promise anything. Empty means safe."""
+    probs, known = [], {n.replace(",", "") for n in re.findall(r"\d[\d,]*\.?\d*", facts)}
+    if len(reply.split()) > 70: probs.append("too long")
+    for n in re.findall(r"\d[\d,]*\.?\d*", reply):
+        if n.rstrip(".,").replace(",", "") not in known: probs.append(f"number {n} not in facts")
+    if re.search(r"[०-९]", reply): probs.append("number in other script")
+    if ANSWER_BANNED.search(reply): probs.append("decides or promises")
+    if CODE.search(reply): probs.append("internal code")
+    if "{" in reply or "}" in reply: probs.append("not a sentence")
+    if redact(reply)[1] or "[contact removed]" in redact(reply)[0]: probs.append("identifier")
+    return probs
+
 
 # A request for something built to order, as opposed to a catalogue product. "customer" must never match.
 CUSTOM_NEED = re.compile(r"\bcustom(?:i[sz]ed)?\b|\bbespoke\b|\btailor[- ]?made\b|\bspecial(?:i[sz]ed)? (?:setup|solution|requirements?|needs?)\b|\bscada\b|\bplc\b|कस्टम|अनुकूलित", re.I)

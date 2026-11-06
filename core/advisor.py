@@ -2,10 +2,10 @@
 from __future__ import annotations
 import re
 from dataclasses import dataclass, field
-from . import guardrails as G, llm
+from . import guardrails as G, llm, understand as U
 from .catalogue import catalogue
 from .kyc import registry
-from .rules import Profile, Recommendation, recommend, reason_text, NEEDS, MICRO, QUESTION_VALUES, question_matters, gstin_product, alt_diff, mentionable
+from .rules import Profile, Recommendation, recommend, reason_text, NEEDS, NEED_PRODUCT, MICRO, QUESTION_VALUES, question_matters, gstin_product, alt_diff, mentionable
 
 TIER1 = {"delhi": "दिल्ली", "mumbai": "मुंबई", "bengaluru": "बेंगलुरु", "bangalore": "बैंगलोर", "chennai": "चेन्नई", "kolkata": "कोलकाता", "hyderabad": "हैदराबाद", "pune": "पुणे", "ahmedabad": "अहमदाबाद",
          "gurgaon": "गुड़गांव", "gurugram": "गुरुग्राम", "noida": "नोएडा"}
@@ -65,7 +65,7 @@ BTYPES = [("manufacturer", r"manufactur|factory|textile|garment unit|auto.?parts
           ("restaurant", r"restaurant|tiffin|cloud kitchen|caterer|catering|\bmess\b|cafe|café|hotel|dhaba|bakery chain|रेस्टोरेंट|रेस्तरां|ढाबा|होटल"), ("clinic", r"clinic|dental|dentist|doctor|hospital|diagnostic|physio|\blabs?\b|क्लिनिक|डॉक्टर|अस्पताल"),
           ("pharmacy", r"pharmacy|chemist|medical|दवा|फार्मेसी|मेडिकल"), ("kirana", r"kirana|grocery|general store|किराना|किराणा|परचून"), ("salon", r"salon|parlou?r|barber|सैलून|पार्लर"),
           ("ca_firm", r"\bca\b|chartered accountant|account(an|ing)|सीए\b"), ("coaching", r"coaching|tuition|institute|pre.?school|कोचिंग|ट्यूशन"), ("office", r"\blaw\b|lawyer|advocate|real estate|architect|insurance agen|travel agen|\boffice\b|ऑफिस|वकील"),
-          ("retailer", r"retail|showroom|furniture|boutique|stationery|hardware store|electronics|optician|mobile repair|sweet shop|bakery|apparel|gym|\bshops?\b|\bstores?\b|dukaan|dukan|दुकान")]
+          ("retailer", r"retail|cloth|kapd|kapad|कपड़|saree|sari\b|साड़ी|showroom|furniture|boutique|stationery|hardware store|electronics|optician|mobile repair|sweet shop|bakery|apparel|gym|\bshops?\b|\bstores?\b|dukaan|dukan|दुकान")]
 NEED_RX = [("mobile_premium", r"\b150 ?gb\b|roaming|priority care"), ("mobile_line", r"\bsims?\b|sim card|mobile (line|plan|connection)|postpaid|सिम|मोबाइल (लाइन|प्लान)"),
            ("internet_for_upi_pos", r"\bupi\b|यूपीआई|qr code|payment|card machine|swip(e|ing)|कार्ड मशीन|स्वाइप"), ("pos_billing", r"\bpos\b|billing|बिलिंग|inventory|cash counter"),
            ("cloud_email", r"e-?mail|ईमेल|office suite|google workspace|gmail"), ("storage", r"storage|back ?up(?! (?:internet|link|line|connection|router|4g|5g|net))|बैकअप(?! (?:इंटरनेट|लिंक|लाइन))|स्टोरेज|los(?:e|ing) (?:my |our |the |all )?(?:data|files|records|them)"),
@@ -343,7 +343,7 @@ def extract_profile(text: str, p: Profile, awaiting: str | None = None) -> dict:
         if m and num(m.group(1)) is not None and not re.search(r"\[", t): u[awaiting] = num(m.group(1))
     if awaiting == "business_type" and "business_type" not in u and text.strip() and not re.search(r"small business|chhota business|छोटा बिज़नेस|business$", t) and len(text.split()) <= 6 and not VAGUE.search(t) and not ASKING.search(t):
         u["business_type"] = "other"
-    if awaiting == "city" and "city" not in u and text.strip() and len(text.split()) <= 3 and not n and not VAGUE.search(t) and not ASKING.search(t):
+    if awaiting == "city" and "city" not in u and text.strip() and len(text.split()) <= 3 and not n and not VAGUE.search(t) and not ASKING.search(t) and not any(re.search(rx, t) for _, rx in NEED_RX):  # "internet chahiye" is not a town
         u["city"] = text.strip().title()
     for k in ("employees", "locations"):
         if u.get(k) == 0: u[k] = 1  # "0 staff" still means the owner is there
@@ -464,6 +464,93 @@ def _converse(s: State, text: str, lang: str, client=None) -> str | None:
     return out if out and not G.check_chat(out, names) else None
 
 
+def _facts(s: State) -> str:
+    """Everything a free-form answer may draw on, from the engine and the catalogue only."""
+    p, q, lines = s.profile, s.rec.quote if s.rec else None, []
+    lines.append(f"Customer: business {p.business_type or 'unknown'}, city {p.city or 'unknown'}.")
+    if q:
+        lines.append(f"Their current plan: Rs {q.monthly} per month, setup Rs {q.setup}, contract {q.contract} months: " + "; ".join(f"{l.name} x{l.qty} Rs {l.monthly}" for l in q.lines))
+    lines.append("Sold only in Tier 1 and Tier 2 cities. Installation dates are estimates. Consent and KYC documents come after accepting a quote.")
+    lines += [f"{x.name}: {x.description}. Rs {x.monthly} {x.unit}, {x.contract}-month contract, about {x.install_days} days to install." for x in catalogue().values()]
+    return "\n".join(lines)
+
+
+def _answer(s: State, text: str, lang: str, client=None) -> str | None:
+    """A question nothing else covers: Gemini answers from the facts, checked; a failed check regenerates once (rule 2)."""
+    if client is None and llm.client() is None: return None
+    facts = _facts(s)
+    for _ in range(2):
+        out = (llm.answer(text, lang, facts, client) or "").strip()
+        if not out: return None  # the service failed: don't make the owner wait for a second try
+        if not G.check_answer(out, facts): return out
+    return None
+
+
+def _ack(s: State, text: str, u: dict, lang: str) -> str:
+    """Show what was understood before the next question. Long messages get a warm line from Gemini, checked; otherwise a plain one."""
+    if len(text.split()) >= 6 and llm.client() is not None:
+        out = (llm.acknowledge(text, lang, f"business {s.profile.business_type or 'unknown'}") or "").strip()
+        if out and not G.check_chat(out) and not G.check_answer(out, ""): return out
+    col, parts = _col(lang), []
+    if u.get("business_type") in U.KIND: parts.append(U.KIND[u["business_type"]][col])
+    if u.get("city"): parts.append(u["city"])
+    if u.get("employees"): parts.append(U.PEOPLE[lang][u["employees"] > 1].format(n=u["employees"]))
+    if u.get("locations"): parts.append(U.SITES[lang][u["locations"] > 1].format(n=u["locations"]))
+    got = U.TALK["got"][lang] + (": " + ", ".join(parts) if parts else "") + ("।" if lang == "hi" else ".")
+    return _join(U.TALK["problem"][lang], got) if U.has_problem(text) else got
+
+
+def _plan_names(rec) -> dict: return {l.product_id: l for l in rec.quote.lines}
+
+
+def _topic_reply(s: State, text: str, u: dict, lang: str) -> str | None:
+    """Questions we can answer properly from the plan and catalogue, with or without Gemini. The plan never changes here."""
+    t = U.topic(text)
+    if not t: return None
+    cat, q = catalogue(), s.rec.quote if s.rec else None
+    T = lambda key, **k: U.TALK[key].get(lang, U.TALK[key]["en"]).format(**k)
+    item = next((NEED_PRODUCT[n] for n in u.get("needs", []) if n in NEED_PRODUCT), None)
+    if t == "pick" and s.awaiting == "needs_confirm": return None  # "you decide" after a suggestion accepts it
+    end = lambda x: x if not x or x[-1] in ".।!?" else x + ("।" if lang == "hi" else ".")
+    if t == "compare_link":
+        a, b = cat["P01"], cat["P04"]
+        body = T("compare", a=a.name, am=a.monthly, ac=a.contract, ad=a.install_days, b=b.name, bm=b.monthly, bc=b.contract, bd=b.install_days)
+        if q:
+            link = next((l for l in q.lines if l.product_id in ("P01", "P02", "P03", "P04")), None)
+            why = why_text(s.rec, link.product_id, lang) if link else ""
+            if link and why: body = _join(body, end(T("in_plan", name=link.name, why=why)))
+    elif t == "why_costly":
+        if q:
+            body = T("breakdown", m=q.monthly, lines=", ".join(f"{l.name}{f' × {l.qty}' if l.qty > 1 else ''} ₹{l.monthly:,}" for l in q.lines))
+            if s.rec.alternative: body = _join(body, T("alt_line", names=", ".join(cat[k].name for k in s.rec.alternative), m=s.rec.alt_quote.monthly), trade_text(s.rec, lang))
+        else: body = T("no_price_yet")
+    elif t == "pick":
+        if q:
+            link = next((l for l in q.lines if why_text(s.rec, l.product_id, lang)), q.lines[0])
+            alt = T("alt_line", names=", ".join(cat[k].name for k in s.rec.alternative), m=s.rec.alt_quote.monthly) if s.rec.alternative else ""
+            body = _join(end(T("pick_plan", why=why_text(s.rec, link.product_id, lang) or link.name)), alt, trade_text(s.rec, lang) if alt else "")
+        elif not (s.profile.needs or u.get("needs")):
+            _merge(s, {k: v for k, v in u.items() if k in SAFE_FIELDS})
+            if s.profile.business_type is None: return _join(T("pick_later"), _steer(s))
+            s.awaiting = "needs_confirm"
+            return _lang_text("suggest", lang)
+        else: body = T("pick_later")
+    elif t == "capabilities":
+        body = T("capabilities")
+    else:  # need_item, what_is: about one product
+        if not item: return None
+        pr, line = cat[item], _plan_names(s.rec).get(item) if q else None
+        words = WHY.get(next((n for n in u.get("needs", []) if NEED_PRODUCT.get(n) == item), ""))
+        desc = words[_col(lang)] if words else pr.description.lower()
+        if line:
+            why = why_text(s.rec, item, lang) or desc
+            body = _join(end(T("in_plan", name=pr.name, why=why)), "" if '"' in why else T("optional"))  # the reason may already say how to remove it
+        elif q: body = T("not_in_plan", name=pr.name, desc=desc)
+        else: body = T("explain", name=pr.name, desc=desc)
+    _merge(s, {k: v for k, v in u.items() if k in SAFE_FIELDS})
+    return body if q else _join(body, _steer(s))
+
+
 def _steer(s: State) -> str:
     if s.rec and s.rec.quote:
         return _lang_text("price_is", s.profile.language, m=s.rec.quote.monthly)
@@ -531,6 +618,9 @@ def _faq(s, text, lang) -> str | None:
     return None
 
 
+SAFE_FIELDS = {"business_type", "city", "city_tier", "has_gstin"}  # a question can state these, but its numbers and product words aren't answers
+
+
 def _rest_of(s, text, asked, found, lang, llm_client) -> str | None:
     """A question we decline can arrive with real answers ("free upgrade? clinic in Delhi, 6 staff"): use them instead of asking again.
     Only before a plan exists, so a figure in a haggle can never change a quote."""
@@ -561,11 +651,17 @@ def _route(s, text, found, lang, llm_client):
     if G.PAUSE.search(text):
         s.awaiting, s.stuck = None, 0
         return _lang_text("pause", lang)
+    kind = U.social(text)
+    plan_up = bool(s.rec and s.rec.quote)
+    if kind and not (kind == "filler" and s.awaiting == "needs_confirm") and not (plan_up and kind in ("thanks", "filler")):
+        return U.TALK[kind][lang] if plan_up else _join(U.TALK[kind][lang], _steer(s))
     field_asked = "needs" if s.awaiting == "needs_confirm" else s.awaiting
     if field_asked and G.WHY_ASK.search(text):
         return _join(WHY_FIELD[field_asked][{"en": 0, "hi": 1, "hinglish": 2}.get(lang, 0)], Q[field_asked][lang])
     miss = G.out_of_catalogue(text)
     u = extract_profile(text, s.profile, s.awaiting)
+    if not miss and (said := _topic_reply(s, text, u, lang)):
+        return said
     if G.CONFUSED.search(text):
         s.confusion += 1
         if s.confusion >= 2:
@@ -604,14 +700,14 @@ def _route(s, text, found, lang, llm_client):
     if s.rec and s.rec.alternative and G.CHEAPER_ASK.search(text) and not u:
         cat = catalogue()
         return _join(_lang_text("alt", lang, names=", ".join(cat[k].name for k in s.rec.alternative), m=s.rec.alt_quote.monthly), trade_text(s.rec, lang))
-    if s.rec and THANKS.search(text) and not u:
+    if s.rec and (THANKS.search(text) or U.social(text) in ("thanks", "filler")) and not u:
         return _lang_text("next", lang)
-    if s.awaiting == "needs_confirm" and not u.get("needs") and re.match(r"\s*((yes|yeah|ok|okay|haan|han|ji|theek)\b|हाँ|हां|जी|ठीक)", text.lower()):
+    if s.awaiting == "needs_confirm" and not u.get("needs") and (U.topic(text) == "pick" or re.match(r"\s*((yes|yeah|ok|okay|haan|han|ji|theek)\b|हाँ|हां|जी|ठीक)", text.lower())):
         u["needs"] = ["internet_for_upi_pos" if s.profile.business_type in MICRO else "internet"]
     _merge(s, u)
     # Save free-tier quota: skip when nothing is missing, or for short answers like "6" or "Delhi".
     before = s.profile.model_dump()
-    if next_question(s) and len(text.split()) > 3: _merge_llm(s, text, u)
+    if next_question(s) and len(text.split()) > 3 and not U.is_question(text): _merge_llm(s, text, u)  # a question isn't an answer: "does the godown count?" must not become 2 sites
     moved = bool(u) or s.profile.model_dump() != before
     if u.get("only") or (s.profile.needs and set(s.profile.needs) <= {"mobile_line", "mobile_premium"}):
         # A mobile-only request needs no site count; a staff count of 1 satisfies every P07 rule.
@@ -620,6 +716,11 @@ def _route(s, text, found, lang, llm_client):
         s.profile.business_type = s.profile.business_type or "other"
     # A town we can't serve ends the discovery: further questions would waste the owner's time.
     f = None if s.profile.city_tier == 3 else next_question(s)
+    if not moved and U.is_question(text) and (f or (s.rec and s.rec.quote)):  # a real question: answer it, and never count it as a failed answer
+        said = _answer(s, text, lang, llm_client) or U.TALK["cant_confirm"][lang]
+        if not f: return said
+        s.awaiting = f
+        return _join(said, _question(s, f, lang))
     if f:
         if not moved and s.awaiting is None and (said := _converse(s, text, lang, llm_client)):
             s.awaiting = f; s.rec = None
@@ -644,9 +745,11 @@ def _route(s, text, found, lang, llm_client):
             s.asked.append("city_tier+has_gstin")
             return _join(Q[f][lang], _question(s, "has_gstin", lang))
         if f not in s.asked and not (f == "has_gstin" and "city_tier+has_gstin" in s.asked): s.asked.append(f)
-        return _question(s, f, lang)
+        return _join(_ack(s, text, u, lang) if moved else "", _question(s, f, lang))
     if s.rec and s.rec.quote and not moved and (said := _converse(s, text, lang, llm_client)):
         return said  # a remark about the plan: answer it and keep the plan
+    if s.rec and s.rec.quote and not moved and not U.PLAN_ASK.search(text):
+        return U.TALK["plan_stays"][lang].format(m=s.rec.quote.monthly)  # nothing changed: don't print the whole plan again
     s.awaiting = None; s.stuck = 0
     s.rec = recommend(s.profile)
     if s.rec.handoff: _do_handoff(s, s.rec.handoff)

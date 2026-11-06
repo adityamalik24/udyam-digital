@@ -131,3 +131,10 @@
 - {id: c4, name: "Haggle in new words refused", turns: ["Clinic in Delhi, 6 staff, one location, want email", "make it 2000 flat, final offer"], reply_has: "can't offer"}
 - {id: c5, name: "Declined question keeps the answers", turns: ["do you give free upgrade after a year? clinic in Delhi 6 staff one location want internet"], has: [P01], reply_lacks: "What kind of business"}
 - {id: c6, name: "Discount ask keeps the answers", turns: ["give me a discount, clinic in Delhi 6 staff one location want internet"], has: [P01], reply_has: "can't change prices", reply_lacks: "What kind of business"}
+- {id: h1, name: "Compare question keeps the flow", turns: ["clinic in Delhi, want internet", "what's the difference between fibre and airfiber?", "6", "1"], items: [P01], profile: {employees: 6, locations: 1}}
+- {id: h2, name: "Why so expensive answered", turns: ["Clinic in Delhi, 6 staff, one location, have GSTIN, want email", "why is this so expensive?"], reply_has: "makes up your", reply_lacks: "smallest plan"}
+- {id: h3, name: "Do I need security answered, plan kept", turns: ["Clinic in Delhi, 6 staff, one location, have GSTIN, want email", "do i really need the security thing?"], has: [P20], reply_has: "client data"}
+- {id: h4, name: "Filler is not a business type", turns: ["ok"], profile: {business_type: null}}
+- {id: h5, name: "Hindi compare answered", turns: ["मेरा क्लिनिक है", "फाइबर और एयरफाइबर में क्या अंतर है?"], reply_has: "वायरलेस 5G", lang: hi}
+- {id: h6, name: "You decide accepts the suggestion", turns: ["clinic in Delhi", "you decide", "you decide"], need: [internet]}
+- {id: h7, name: "Need at the city question is not a city", turns: ["clinic", "email", "need cctv"], profile: {city: null}, need: [cctv]}
