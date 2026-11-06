@@ -60,8 +60,8 @@ DOCS_NEEDED = {
  "bill": {"en": ("Address proof", "a bill under 90 days old, in your business's name and at its registered address."),
           "hi": ("पते का प्रमाण", "90 दिन से कम पुराना बिल, आपके बिज़नेस के नाम पर और उसके पंजीकृत पते का।")},
 }
-DOCS_TIP = {"en": "Clear PNG or JPG photos work best, because blurred ones can't be read. Missing a document? Send what you have and a person will review it.",
-            "hi": "साफ़ PNG या JPG फ़ोटो सबसे अच्छी रहती हैं, क्योंकि धुंधली फ़ोटो पढ़ी नहीं जा सकतीं। कोई दस्तावेज़ नहीं है? जो है वह भेजें, कोई व्यक्ति उसकी जाँच करेगा।"}
+DOCS_TIP = {"en": "Clear photos or PDFs work best, because blurred ones can't be read. You can send them all at once, in any order. Missing a document? Send what you have and a person will review it.",
+            "hi": "साफ़ फ़ोटो या PDF सबसे अच्छे रहते हैं, क्योंकि धुंधली फ़ोटो पढ़ी नहीं जा सकती। आप सब एक साथ, किसी भी क्रम में भेज सकते हैं। कोई दस्तावेज़ नहीं है? जो है वह भेजें, कोई व्यक्ति उसकी जाँच करेगा।"}
 RECEIPT = {
  "en": dict(title="Accel Business consent receipt", ref="Reference", notice="Notice version", language="Language", given="Given", status="Status", active="Active", withdrawn="Withdrawn",
             foot="You can withdraw any active consent at any time on the consent page or in the tracker. All times are UTC. This is a demo with synthetic data."),

@@ -105,10 +105,11 @@ def _read(img: Image.Image, doc: str):
     if abs(skew) >= 1:
         img = img.rotate(skew, expand=True, fillcolor="white", resample=Image.BICUBIC); ink = _ink(img)
     text = _text(ink.resize((ink.width * 2, ink.height * 2), Image.LANCZOS), "--psm 6")
-    return img, ink, text, parse(text, doc), skew
+    return img, ink, text, parse(text, doc) if doc else {}, skew
 
 
-def extract(img: Image.Image, doc: str) -> Extracted:
+def extract(img: Image.Image, doc: str | None = None) -> Extracted:
+    """Read one document. With doc=None its type is worked out from the text; ex.doc stays None if it can't be told."""
     img = prepare(img)
     ex = Extracted(doc=doc, sharpness=sharpness(img))
     good_size = img.width >= RELIABLE_WIDTH
@@ -123,6 +124,8 @@ def extract(img: Image.Image, doc: str) -> Extracted:
                 page, ink, ex.text, ex.fields, ex.skew = t_page, t_ink, t_text, t_fields, t_skew
                 ex.looks_like = _looks_like(t_text); img = turned
                 break
+    if doc is None and ex.looks_like:
+        doc = ex.doc = ex.looks_like; ex.fields = parse(ex.text, doc)
     ex.reliable = abs(ex.skew) < 1 and good_size and img.width >= RELIABLE_WIDTH
     if doc == "gst" and "gstin" in ex.fields:
         chosen, reads = read_gstin_line(ink, page, abs(ex.skew) < 1)

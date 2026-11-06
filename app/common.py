@@ -29,6 +29,9 @@ def setup(title: str):
     # A chat that began before a deploy can miss newer fields: start it fresh instead of crashing.
     if any(not hasattr(st.session_state.advisor, f) for f in State.__dataclass_fields__):
         st.session_state.advisor, st.session_state.chat = State(), []
+    from core import orders
+    if st.session_state.get("order_id") and not orders.get(st.session_state.order_id):  # the database restarted under this session
+        for k in ("order_id", "accepted_items"): st.session_state.pop(k, None)
     st.session_state.setdefault("ui_lang", "en")
     st.session_state.setdefault("chat", [])
     st.session_state.setdefault("synced_lang", "en")
@@ -75,7 +78,8 @@ def consent_panel(t: dict) -> None:
     for p in sorted(consent.active(user())):
         if st.button(f"{t['withdraw']}: {label(p)}", key=f"w_{p}"):
             consent.withdraw(user(), p)
-            if p == consent.KYC: st.session_state.pop("kyc_result", None)  # deleted, so it must not stay on screen
+            if p == consent.KYC:  # deleted, so none of it may stay on screen or in the session
+                for k in ("kyc_result", "lookup", "typed_gstin"): st.session_state.pop(k, None)
             st.rerun()
 
 

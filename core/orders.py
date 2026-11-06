@@ -1,12 +1,14 @@
 """Order state machine for the tracker. Dates derive from catalogue install days and are shown as estimates."""
 from __future__ import annotations
 import json
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from . import db
 from .pricing import Quote, TODAY
 
 STAGES = ["Quote accepted", "KYC verified", "Payment done", "Installation scheduled", "Technician assigned", "Installed", "Activated"]
 TECHS = ["Ravi Menon", "Sana Qureshi", "Arjun Nair"]  # demo data
+MAX_RESCHEDULE_DAYS = 60  # how far ahead an installation can be moved
+IST = timezone(timedelta(hours=5, minutes=30))
 
 
 def create(user: str, items: dict[str, int], q: Quote) -> int:
@@ -59,23 +61,60 @@ def advance(oid: int, to: str | None = None) -> str:
 
 
 def can_advance(o: dict, kyc_verdict: str | None) -> bool:
-    """Nothing moves past "Quote accepted" without a verified KYC, including the demo control."""
-    return kyc_verdict == "verified" and o["stage_index"] < len(STAGES) - 1
+    """What the demo control may do. Nothing moves without a verified KYC, and payment only happens through paying."""
+    return kyc_verdict == "verified" and o["stage_index"] != STAGES.index("KYC verified") and o["stage_index"] < len(STAGES) - 1
+
+
+def can_pay(o: dict, kyc_verdict: str | None) -> bool:
+    return kyc_verdict == "verified" and o["stage"] == "KYC verified"
+
+
+def first_due(o: dict) -> int:
+    return o["monthly"] + o["setup"]
+
+
+def earliest_install(o: dict) -> date:
+    """The catalogue's typical install time is the soonest we can honestly offer, counted from the demo's today."""
+    return TODAY + timedelta(days=o["install_days"])
 
 
 def reschedule(oid: int, new: date) -> None:
     o = get(oid)
     if o["stage_index"] < 3 or o["stage_index"] >= 5:
         raise ValueError("can only reschedule between scheduling and installation")
-    if new < TODAY:
-        raise ValueError("date is in the past")
+    if new < earliest_install(o):
+        raise ValueError("date is earlier than we can install")
+    if new > TODAY + timedelta(days=MAX_RESCHEDULE_DAYS):
+        raise ValueError("date is too far ahead")
+    if new.isoformat() == o["install_date"]: return
     with db.conn() as c:
+        c.execute("INSERT INTO order_changes(order_id,old_date,new_date,ts) VALUES(?,?,?,?)", (oid, o["install_date"], new.isoformat(), db.now()))
         c.execute("UPDATE orders SET install_date=? WHERE id=?", (new.isoformat(), oid))
 
 
-def next_expected(o: dict) -> str | None:
-    """Estimated date for the next step, or None when nothing is pending."""
+def changes(oid: int) -> list[dict]:
+    with db.conn() as c:
+        return [dict(r) for r in c.execute("SELECT old_date,new_date,ts FROM order_changes WHERE order_id=? ORDER BY id", (oid,))]
+
+
+def for_user(user: str) -> list[int]:
+    """This person's orders, newest first."""
+    with db.conn() as c:
+        return [r["id"] for r in c.execute("SELECT id FROM orders WHERE user=? ORDER BY id DESC", (user,))]
+
+
+def next_step(o: dict) -> dict | None:
+    """What comes next, who does it, and an estimate only where the catalogue gives one. None once activated.
+    Activation has no date in the data, so we promise none."""
     i = o["stage_index"]
     if i >= len(STAGES) - 1: return None
-    if o.get("install_date"): return o["install_date"]
-    return (TODAY + timedelta(days=o["install_days"])).isoformat()
+    planned = date.fromisoformat(o["install_date"]) if o.get("install_date") else earliest_install(o)
+    return {"stage": STAGES[i + 1], "who": "you" if i < 2 else "us", "estimate": planned if 2 <= i <= 4 else None}
+
+
+def shown_time(ts: str, created: str) -> datetime:
+    """A stored time as the demo should show it: in IST, with the order's first day placed on the demo's today.
+    Eligibility dates and estimates all use that today, so a real clock next to them would read as months apart.
+    The stored record keeps the real time."""
+    t, start = datetime.fromisoformat(ts).astimezone(IST), datetime.fromisoformat(created).astimezone(IST)
+    return t.replace(year=TODAY.year, month=TODAY.month, day=TODAY.day) + timedelta(days=(t.date() - start.date()).days)

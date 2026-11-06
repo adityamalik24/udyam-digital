@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS kyc(id INTEGER PRIMARY KEY, user TEXT, verdict TEXT, 
 CREATE TABLE IF NOT EXISTS orders(id INTEGER PRIMARY KEY, user TEXT, items TEXT, monthly INTEGER, setup INTEGER, contract INTEGER, install_days INTEGER, technician TEXT, install_date TEXT, created TEXT);
 CREATE TABLE IF NOT EXISTS callbacks(id INTEGER PRIMARY KEY, user TEXT, name TEXT, phone TEXT, email TEXT, best_time TEXT, note TEXT, profile TEXT, reason TEXT, ts TEXT);
 CREATE TABLE IF NOT EXISTS order_events(id INTEGER PRIMARY KEY, order_id INTEGER, stage TEXT, ts TEXT);
+CREATE TABLE IF NOT EXISTS order_changes(id INTEGER PRIMARY KEY, order_id INTEGER, old_date TEXT, new_date TEXT, ts TEXT);
 """
 
 

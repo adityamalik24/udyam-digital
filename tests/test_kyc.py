@@ -37,7 +37,7 @@ def test_mask(): assert mask("SYN-ID-346190") == "•" * 9 + "6190"
 from PIL import Image
 from core.kyc.checks import check_applicant, gstin_reading, names_match, _addr_ok
 from core.kyc.ocr import Extracted, prepare, clean_up, sharpness, extract
-from core.kyc.pipeline import load_specimen, open_upload, verify_images, FILES
+from core.kyc.pipeline import load_specimen, look_up_gstin, look_up_udyam, open_upload, verify_files, verify_images, FILES
 from core.kyc import messages as M
 
 K03_GSTIN = "27XUIXG0767D1ZP"
@@ -219,18 +219,109 @@ def test_wrong_document_and_blank_page_say_so_instead_of_blurred():
     r = verify_images({k: blank for k in FILES})
     assert r.verdict == "needs_review" and "blurred" not in r.reason_in("en")
 
-@pytest.mark.parametrize("data,why", [(b"hello", "bad_file"), (b"", "bad_file")])
-def test_bad_files_get_a_reason_not_a_crash(data, why):
-    assert open_upload(io.BytesIO(data)) == (None, why)
+@pytest.mark.parametrize("data", [b"hello", b"", b"%PDF-1.4 not really a pdf"])
+def test_bad_files_get_a_reason_not_a_crash(data):
+    assert open_upload(io.BytesIO(data)) == ([], "bad_file")
 
 def test_cut_off_and_huge_files_get_a_reason_not_a_crash():
     png = (pathlib.Path(__file__).parents[1] / "data/kyc_documents/K03_gst_certificate.png").read_bytes()
     assert open_upload(io.BytesIO(png[:5000]))[1] == "bad_file"
     b = io.BytesIO(); Image.new("L", (7000, 7000)).save(b, "PNG"); b.seek(0)
-    assert open_upload(b) == (None, "too_big")
+    assert open_upload(b) == ([], "too_big")
     class Big(io.BytesIO): size = 11 * 1024 * 1024
-    assert open_upload(Big(png)) == (None, "too_big")
-    assert open_upload(io.BytesIO(png))[0] is not None
+    assert open_upload(Big(png)) == ([], "too_big")
+    pages, why = open_upload(io.BytesIO(png)); assert len(pages) == 1 and why is None
+
+# --- Files in any order, and PDFs ---
+def _pdf(*images):
+    b = io.BytesIO(); first = images[0].convert("RGB")
+    first.save(b, "PDF", resolution=150, save_all=True, append_images=[i.convert("RGB") for i in images[1:]]); b.seek(0); return b
+
+def _shuffled(k):
+    d = load_specimen(k); return [d[x] for x in reversed(list(d))]
+
+@pytest.mark.parametrize("k", list(EXPECTED))
+def test_files_in_any_order_get_the_same_verdict_and_reason_as_named_slots(k, results):
+    r = verify_files(_shuffled(k))
+    assert r.verdict == results[k].verdict and _codes(r) == {i.code for i in results[k].issues} and r.unused == 0
+
+def test_blurred_page_is_placed_by_elimination_and_named_correctly():
+    r = verify_files(_shuffled("K04")); assert "blurry_gst" in _codes(r)
+
+def test_two_unrecognised_files_are_not_guessed():
+    s = load_specimen("K03"); blank = Image.new("RGB", (1240, 1754), "white")
+    r = verify_files([s["id"], s["bill"], blank, blank.copy()])
+    assert r.verdict == "needs_review" and {"missing_gst", "missing_udyam"} <= _codes(r) and r.unused == 2
+
+def test_extra_junk_file_is_reported_but_not_held_against_a_clean_applicant():
+    r = verify_files(_shuffled("K03") + [Image.new("RGB", (800, 800), "white")])
+    assert r.verdict == "verified" and r.unused == 1
+
+def test_the_same_file_twice_is_fine_but_two_different_documents_go_to_a_person():
+    s = load_specimen("K03")
+    assert verify_files(_shuffled("K03") + [s["bill"]]).verdict == "verified"
+    r = verify_files(_shuffled("K03") + [load_specimen("K08")["bill"]])
+    assert r.verdict == "needs_review" and "duplicate_bill" in _codes(r)
+    r = verify_files([load_specimen("K08")["gst"]] + _shuffled("K03"))
+    assert r.verdict != "verified" and "duplicate_gst" in _codes(r)
+
+def test_nothing_recognised_never_verifies():
+    r = verify_files([Image.new("RGB", (800, 800), "white")])
+    assert r.verdict == "needs_review" and len([c for c in _codes(r) if c.startswith("missing_")]) >= 3
+
+def test_a_pdf_for_each_document_and_one_pdf_of_everything_both_work():
+    s = load_specimen("K03")
+    pages = [p for d in s.values() for p in open_upload(_pdf(d))[0]]
+    assert len(pages) == 4 and verify_files(pages).verdict == "verified"
+    together, why = open_upload(_pdf(*s.values()))
+    assert why is None and len(together) == 4 and verify_files(together).verdict == "verified"
+
+@pytest.mark.parametrize("k,want", [("K01", "rejected"), ("K06", "rejected"), ("K11", "needs_review"), ("K05", "needs_review")])
+def test_problems_are_still_caught_through_a_pdf(k, want):
+    assert verify_files(open_upload(_pdf(*load_specimen(k).values()))[0]).verdict == want
+
+def test_too_many_pdf_pages_are_refused():
+    assert open_upload(_pdf(*[Image.new("RGB", (200, 200), "white")] * 9)) == ([], "too_many")
+
+def test_type_comes_from_the_content_not_the_name():
+    class Named(io.BytesIO): name = "gst.png"
+    assert len(open_upload(Named(_pdf(load_specimen("K03")["gst"]).getvalue()))[0]) == 1
+
+def test_a_pdf_hidden_text_layer_is_ignored():
+    # A page that draws one GSTIN in white-on-white text and nothing visible must read as blank: only what's drawn counts.
+    stream = b"BT /F1 12 Tf 1 1 1 rg 72 700 Td (GSTIN 27XUIXG0767D1ZP Legal name Ganesh Woodcraft Trade name Ganesh Woodcraft) Tj ET"
+    objs = [b"<</Type/Catalog/Pages 2 0 R>>", b"<</Type/Pages/Kids[3 0 R]/Count 1>>", b"<</Type/Page/Parent 2 0 R/MediaBox[0 0 595 842]/Contents 4 0 R/Resources<</Font<</F1 5 0 R>>>>>>",
+            b"<</Length %d>>stream\n%s\nendstream" % (len(stream), stream), b"<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>"]
+    pdf = b"%PDF-1.4\n"; at = []
+    for i, o in enumerate(objs, 1): at.append(len(pdf)); pdf += b"%d 0 obj\n%s\nendobj\n" % (i, o)
+    x = len(pdf); pdf += b"xref\n0 6\n0000000000 65535 f \n" + b"".join(b"%010d 00000 n \n" % a for a in at) + b"trailer<</Size 6/Root 1 0 R>>\nstartxref\n%d\n%%%%EOF" % x
+    pages, why = open_upload(io.BytesIO(pdf)); assert why is None and len(pages) == 1
+    assert extract(pages[0]).doc is None
+
+# --- Instant number lookup ---
+def test_gstin_lookup_states_and_only_a_masked_status_comes_back():
+    active = next(g for g, r in registry._gst().items() if r["status"] == "Active")
+    cancelled = next(g for g, r in registry._gst().items() if r["status"] == "Cancelled")
+    suspended = next(g for g, r in registry._gst().items() if r["status"] == "Suspended")
+    r = look_up_gstin(active); assert r == {"state": "active", "masked": mask(active)} and active not in str(r)
+    assert look_up_gstin(cancelled)["state"] == "cancelled" and look_up_gstin(suspended)["state"] == "suspended"
+    assert look_up_gstin(f"  {active[:5].lower()} {active[5:]} ")["state"] == "active"  # spaces and case are a typist's noise
+    for bad in ("", "ABC", "1234 5678 9012", "ABCDE1234F"): assert look_up_gstin(bad) == {"state": "bad_format"}
+    assert set(look_up_gstin(active)) == {"state", "masked"}
+
+def test_gstin_lookup_is_never_corrected():
+    g = "08YKZXS5189L1ZO"; assert look_up_gstin(g)["state"] == "active"
+    assert look_up_gstin(g.replace("L1ZO", "L1Z0"))["state"] != "active"  # O typed as 0 is not this number
+    assert look_up_gstin("08YKZXS8189L1ZO")["state"] != "active"  # K06's altered number
+
+def test_udyam_lookup():
+    u = next(iter(registry.all_udyam()))
+    assert look_up_udyam(u) == {"state": "found", "masked": mask(u)}
+    assert look_up_udyam("UDYAM-MH-00-0000000")["state"] == "not_found" and look_up_udyam("12345")["state"] == "bad_format"
+
+def test_typed_gstin_is_compared_with_the_certificate():
+    r = verify_files(_shuffled("K03"), "24XORXG9365M1Z3"); assert r.verdict == "needs_review" and "entered_mismatch" in _codes(r)
+    assert verify_files(_shuffled("K03"), K03_GSTIN).verdict == "verified"
 
 # --- Words and privacy ---
 def test_every_message_exists_in_both_languages_and_fills_in():

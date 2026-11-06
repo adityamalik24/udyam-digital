@@ -1,3 +1,4 @@
+import pytest
 import os, sys, pathlib, tempfile
 sys.path.insert(0, str(pathlib.Path(__file__).parents[1]))
 os.environ["UDYAM_DB"] = os.path.join(tempfile.mkdtemp(), "t.db")
@@ -276,3 +277,144 @@ def test_documents_to_keep_ready_match_what_kyc_checks():
 @pytest.mark.parametrize("claim", ["the best plan", "सबसे बढ़िया प्लान", "sabse badhiya plan", "a perfect fit"])
 def test_rewrite_cannot_claim_a_plan_is_the_best(claim):
     assert G.check_reply(f"Biz Fibre 100 is {claim} at ₹1,099", price({"P01": 1}))
+
+
+def _at(stage, user="tr"):
+    oid = orders.create(user, {"P01": 1}, price({"P01": 1}))
+    for st in orders.STAGES[1:orders.STAGES.index(stage) + 1]: orders.advance(oid, st)
+    return oid
+
+
+def test_next_step_says_who_acts_and_gives_a_date_only_where_the_data_has_one():
+    want = {"Quote accepted": ("KYC verified", "you", False), "KYC verified": ("Payment done", "you", False), "Payment done": ("Installation scheduled", "us", True),
+            "Installation scheduled": ("Technician assigned", "us", True), "Technician assigned": ("Installed", "us", True), "Installed": ("Activated", "us", False)}
+    for stage, (nxt, who, dated) in want.items():
+        s = orders.next_step(orders.get(_at(stage)))
+        assert (s["stage"], s["who"], bool(s["estimate"])) == (nxt, who, dated), stage
+    assert orders.next_step(orders.get(_at("Activated"))) is None
+
+
+def test_estimate_follows_the_catalogue_and_a_reschedule():
+    from datetime import timedelta
+    from core.pricing import TODAY
+    o = orders.get(_at("Payment done")); assert orders.next_step(o)["estimate"] == TODAY + timedelta(days=o["install_days"])
+    oid = _at("Technician assigned"); new = TODAY + timedelta(days=20)
+    orders.reschedule(oid, new); assert orders.next_step(orders.get(oid))["estimate"] == new
+
+
+def test_reschedule_limits_and_history():
+    from datetime import timedelta
+    from core.pricing import TODAY
+    oid = _at("Installation scheduled"); o = orders.get(oid); first = o["install_date"]
+    for bad in (TODAY, orders.earliest_install(o) - timedelta(days=1), TODAY + timedelta(days=orders.MAX_RESCHEDULE_DAYS + 1)):
+        with pytest.raises(ValueError): orders.reschedule(oid, bad)
+    assert orders.get(oid)["install_date"] == first and not orders.changes(oid)
+    orders.reschedule(oid, orders.date.fromisoformat(first)); assert not orders.changes(oid)  # same date: nothing changed
+    new = TODAY + timedelta(days=orders.MAX_RESCHEDULE_DAYS); orders.reschedule(oid, new)
+    assert orders.changes(oid)[0]["old_date"] == first and orders.changes(oid)[0]["new_date"] == new.isoformat()
+    for stage in ("Payment done", "Installed", "Activated"):
+        with pytest.raises(ValueError): orders.reschedule(_at(stage), new)
+
+
+def test_demo_control_can_never_take_the_place_of_paying_or_kyc():
+    o = lambda stage: orders.get(_at(stage))
+    assert not orders.can_advance(o("KYC verified"), "verified") and orders.can_pay(o("KYC verified"), "verified")
+    assert not orders.can_pay(o("KYC verified"), "needs_review") and not orders.can_pay(o("Payment done"), "verified") and not orders.can_pay(o("Quote accepted"), "verified")
+    for v in (None, "needs_review", "rejected"): assert not orders.can_advance(o("Payment done"), v)
+    assert orders.can_advance(o("Payment done"), "verified") and not orders.can_advance(o("Activated"), "verified")
+
+
+def test_stage_order_cannot_be_skipped_or_reversed():
+    oid = _at("KYC verified")
+    with pytest.raises(ValueError): orders.advance(oid, "Installed")
+    with pytest.raises(ValueError): orders.advance(oid, "Quote accepted")
+    with pytest.raises(ValueError): orders.advance(_at("Activated"))
+
+
+def test_shown_time_is_ist_on_the_demo_day_and_keeps_the_gap_between_days():
+    from core.pricing import TODAY
+    t = orders.shown_time("2026-11-05T22:00:00+00:00", "2026-11-05T22:00:00+00:00")  # 03:30 next morning in IST
+    assert t.date() == TODAY and (t.hour, t.minute) == (3, 30)
+    assert orders.shown_time("2026-11-07T10:00:00+00:00", "2026-11-05T10:00:00+00:00").date().day == TODAY.day + 2
+    assert orders.shown_time("2026-12-01T10:00:00+00:00", "2026-11-30T10:00:00+00:00").date().day == TODAY.day + 1  # across a month end
+
+
+def test_for_user_only_lists_their_own_orders():
+    a, b = orders.create("own1", {"P01": 1}, price({"P01": 1})), orders.create("own2", {"P01": 1}, price({"P01": 1}))
+    c = orders.create("own1", {"P04": 1}, price({"P04": 1}))
+    assert orders.for_user("own1") == [c, a] and orders.for_user("own2") == [b] and orders.for_user("nobody") == []
+
+
+@pytest.mark.parametrize("msgs", [
+    ["we are a factory with 40 staff in Pune and need custom monitoring"],
+    ["small manufacturer in Pune with 40 staff, custom requirements"],
+    ["factory in Pune 40 staff", "we need a custom solution"],
+    ["we need a customised setup", "it's a factory in Pune"],
+    ["हमारी फैक्ट्री पुणे में है, 40 लोग, कस्टम मॉनिटरिंग चाहिए"],
+    ["hamari factory Pune mein hai, 40 log, custom solution chahiye"],
+    ["factory in Pune, we need PLC integration"],
+])
+def test_factory_with_a_custom_need_goes_to_a_person_in_every_language(msgs):
+    s = advisor.State()
+    for m in msgs: reply = advisor.turn(s, m)
+    assert s.handoff == "manufacturer_custom", reply
+    assert sum(l["reason"] == "manufacturer_custom" and "Pune" in l["profile"] for l in db.list_leads()) >= 1
+
+
+@pytest.mark.parametrize("msgs", [
+    ["factory in Pune, 40 staff, one site, GST yes, internet and machine monitoring"],  # a catalogue product, not custom
+    ["factory in Pune, 40 staff, nothing custom, need internet"],
+    ["factory in Pune, our customers need to reach us, 40 staff, need internet"],  # "customers" is not "custom"
+])
+def test_ordinary_factory_needs_are_not_handed_off_as_custom(msgs):
+    s = advisor.State()
+    for m in msgs: advisor.turn(s, m)
+    assert s.handoff != "manufacturer_custom"
+
+
+def test_custom_from_a_clinic_is_not_a_factory_handoff_and_repeat_saves_one_lead():
+    s = advisor.State(); advisor.turn(s, "clinic in Delhi, we want a custom setup"); assert s.handoff != "manufacturer_custom"
+    s = advisor.State(); advisor.turn(s, "factory in Nagpur needs custom monitoring"); n = len(db.list_leads())
+    advisor.turn(s, "yes custom please, 40 staff"); assert len(db.list_leads()) == n
+
+
+@pytest.mark.parametrize("ask", ["make it 2000 flat, final offer", "make it ₹2000", "flat 2000", "2000 me do", "2000 में दो", "this is my final offer"])
+def test_haggling_in_new_words_is_refused_and_the_price_holds(ask):
+    s = advisor.State(); advisor.turn(s, "Clinic in Delhi, 6 staff, one location, have GSTIN, want email")
+    before = dict(s.rec.items)
+    r = advisor.turn(s, ask)
+    assert "2,671" in r and s.rec.items == before and s.rec.quote.monthly == 2671
+    assert s.profile.employees == 6 and any(w in r for w in ("can't offer", "छूट", "discount"))
+
+
+@pytest.mark.parametrize("msg", ["I run a flat rental agency in Pune", "we have 2000 customers, salon in Pune"])
+def test_ordinary_words_are_not_mistaken_for_haggling(msg):
+    assert "can't offer discounts" not in advisor.turn(advisor.State(), msg)
+
+
+@pytest.mark.parametrize("msg", ["do you give free upgrade after a year? clinic in Delhi 6 staff one location want internet",
+                                 "how long does install take? clinic in Delhi 6 staff one location want internet",
+                                 "give me a discount, clinic in Delhi 6 staff one location want internet"])
+def test_a_declined_question_does_not_lose_the_answers_that_came_with_it(msg):
+    s = advisor.State(); r = advisor.turn(s, msg)
+    assert s.profile.business_type == "clinic" and s.profile.city == "Delhi" and s.profile.employees == 6
+    assert "What kind of business" not in r and s.rec and s.rec.quote and "₹" in r
+
+
+def test_haggle_figures_never_become_staff_or_change_a_quote():
+    s = advisor.State(); advisor.turn(s, "clinic in Delhi want internet")
+    advisor.turn(s, "make it 2000"); assert s.profile.employees is None
+    s = advisor.State(); advisor.turn(s, "Clinic in Delhi, 6 staff, one location, want email"); advisor.turn(s, "give 50% off, 40 staff")
+    assert s.rec.quote.monthly == 2671
+
+
+def test_only_a_factory_is_labelled_a_factory_in_the_queue():
+    s = advisor.State(); advisor.turn(s, "kirana in Pune 3 people one shop no gst want leased line"); assert s.handoff == "needs_scoping"
+    s = advisor.State(); advisor.turn(s, "Textile unit in Surat, 5 workers, 1 unit, have GST, need a leased line"); assert s.handoff == "manufacturer_custom"
+
+
+@pytest.mark.parametrize("msg,lang", [("free upgrade milega? clinic hai Delhi mein 6 log ek jagah internet chahiye", "hinglish"),
+                                      ("क्या फ्री अपग्रेड मिलेगा? दिल्ली में क्लिनिक है, 6 लोग, एक ही जगह, इंटरनेट चाहिए", "hi")])
+def test_promise_request_with_answers_works_in_hindi_and_hinglish(msg, lang):
+    s = advisor.State(); r = advisor.turn(s, msg)
+    assert s.profile.language == lang and s.profile.locations == 1 and s.rec and s.rec.quote and ("promise" in r or "वादा" in r)

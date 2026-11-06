@@ -40,6 +40,12 @@ Stretch goal: `Partner queue` lists advisor hand-offs and ranks leads lost to ou
 | Messages never show a registry value | A forger shouldn't learn from our reply what the document should say. Stored reasons also hold no names or numbers |
 | Every printed GST field is compared with the registry | All 12 applicants agree on them apart from the planted problems, so this adds no false alarms and catches an edited trade name, address, business type or date |
 | No record of the signatory means needs_review | When there's nothing to compare the name with, we don't vouch for it. No specimen hits this |
+| Tracker dates are shown on the demo's today, in IST | Eligibility and estimates use 2026-07-15, so real timestamps would read months apart. Stored times stay real, and consent records show their real time |
+| Reschedule from the catalogue's install time, up to 60 days ahead | An earlier date would promise something the data doesn't support. 60 days is our assumption |
+| No activation date, no refund promise | The data gives neither, and rule 10 forbids promises the rules don't support |
+| Number lookup shows only a status | Enough to catch a cancelled GSTIN before any upload, without letting anyone read other businesses' details. The typed GSTIN stays in the session to compare with the certificate, is dropped after verifying, and is never stored |
+| Files are sorted by content, and we don't guess beyond one gap | One unrecognised file with one type missing is that type. Two different documents of one type go to a person, never a silent pick |
+| A PDF is drawn and read like a photo | Its hidden text layer can differ from what's printed, so it is never trusted |
 | Streamlit pinned to the tested version | `use_container_width` is due for removal, so an unpinned rebuild could break every page |
 | "Clinic wants email" adds a link and Endpoint Security | Our scenario 2. Goes beyond rule 4 (stated needs only): all 138 professional-office customers with email also bought a link, 67 bought security. Saying "we already have internet" removes the link |
 | CCTV and similar still add a link when the owner has one | The catalogue requires a listed product in the same bundle, and we can't confirm a link from another provider |

@@ -37,6 +37,7 @@ class Result:
     fields: dict = field(default_factory=dict)  # minimised and masked; safe to store
     checks: list[tuple[str, dict]] = field(default_factory=list)  # passed checks as (code, params), for any language
     read: dict = field(default_factory=dict)  # what was read per document, IDs masked; shown on screen, never stored
+    unused: int = 0  # files we couldn't recognise and so didn't use
 
     def reason_in(self, lang: str) -> str:
         if self.verdict == "verified": return M.VERIFIED_HI if lang == "hi" else M.VERIFIED_EN
@@ -123,13 +124,14 @@ def _shown(doc: str, f: dict) -> dict:
     return out
 
 
-def check_applicant(docs: dict[str, Extracted], entered_gstin: str | None = None, today: date = TODAY) -> Result:
+def check_applicant(docs: dict[str, Extracted], entered_gstin: str | None = None, today: date = TODAY, duplicates: tuple = ()) -> Result:
     issues, checks = [], []
     def add(sev, code, **params):
         issues.append(Issue(sev, code, M.issue_text(code, params), params))
     def ok(code, **params): checks.append((code, params))
     for key in ("gst", "udyam", "id", "bill"):
         if key not in docs: add("review", f"missing_{key}")
+    for key in duplicates: add("review", f"duplicate_{key}")  # never quietly pick one of two conflicting documents
     unreadable = set()
     for key, e in docs.items():
         if e.sharpness < BLUR_MIN and e.text.strip():  # a blank page is soft too, but "blurred" would be the wrong thing to tell the owner

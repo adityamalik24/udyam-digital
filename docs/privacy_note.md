@@ -1,6 +1,6 @@
 # Data privacy and security note: Udyam Digital
 
-**Scope.** Prototype with synthetic data, designed as if handling real customer data under the DPDP Act, 2023.
+**Scope.** Synthetic-data prototype, designed as if handling real customer data under the DPDP Act, 2023.
 
 | Principle | What the design does |
 |---|---|
@@ -8,7 +8,7 @@
 | Purpose limitation | KYC data is used only to verify the business and activate service. Order updates are a separate, optional consent. |
 | Data minimisation | The advisor asks only for business facts. It never asks for Aadhaar, PAN or bank numbers. If a user volunteers one, it is removed before the text is stored, logged or sent to the LLM, and the user is pointed to KYC. |
 | Call-backs | Name and phone or email come only from a separate form with its own unticked consent, never from chat and never to the LLM. Requests are deleted after 90 days or when the customer removes them. They are stored in full for the team and masked on the demo queue. |
-| Retention | Uploaded images are held in memory during verification and never written to disk. We keep only the verdict, reason and masked fields. **Proposed policy, to be confirmed with legal:** keep these for the life of the service. |
+| Retention | Uploaded images are held in memory during verification and never written to disk. We keep only the verdict, reason, issue codes and masked fields. A GSTIN typed for lookup is never stored. **Proposed policy, to be confirmed with legal:** keep these for the life of the service. |
 | Masking | ID and GSTIN values appear in the UI and database as last 4 characters only. |
 | Withdrawal | Consent can be withdrawn on the consent page or in the tracker, with or without an order. Withdrawing KYC consent deletes the stored KYC result; the consent record itself stays as proof, with a withdrawal timestamp. |
 | Third parties | Document images and ID numbers never go to the LLM. Only redacted chat text does, and only when a key is configured. KYC runs locally with Tesseract. |
@@ -16,6 +16,6 @@
 | Fair outcomes | An automated `rejected` needs hard evidence: an inactive registration or a number that contradicts the registry. Anything uncertain goes to `needs_review` for a person. |
 | Secrets | The API key comes from an environment variable. `.env` and the database are gitignored. |
 
-**Not production-ready.** Before real use, this needs real authentication (the prototype has one demo user), encryption at rest for SQLite, audit logging, a processor agreement with the LLM vendor, a named grievance contact, and legal review of retention periods.
+**Not production-ready.** Before real use, this needs real authentication (the prototype treats each browser session as a user), encryption at rest for SQLite, audit logging, a processor agreement with the LLM vendor, a named grievance contact, and legal review of retention periods.
 
 **LLM provider.** The prototype uses the free Gemini API tier, where the provider may use submitted text to improve its products. Only redacted chat text is sent, and all data here is synthetic. Real customers would need a paid tier with a no-training commitment.

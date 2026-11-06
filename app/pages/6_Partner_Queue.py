@@ -10,7 +10,7 @@ from core.propensity import score_leads
 c.setup("Partner queue")
 st.subheader("Partner queue")
 st.caption("For specialists and channel partners. Read-only demo view, with no contact details or identifiers shown.")
-REASON = {"multi_site": "Several locations", "manufacturer_custom": "Factory with custom needs", "frustration": "Asked for a person", "repeated_confusion": "Repeatedly confused", "tier_not_served": "Town not served yet", "no_eligible": "No eligible plan", "large_account": "Larger than a small business", "customer_request": "Asked for a call"}
+REASON = {"multi_site": "Several locations", "manufacturer_custom": "Factory with custom needs", "needs_scoping": "Wants a line they aren't eligible for", "frustration": "Asked for a person", "repeated_confusion": "Repeatedly confused", "tier_not_served": "Town not served yet", "no_eligible": "No eligible plan", "large_account": "Larger than a small business", "customer_request": "Asked for a call"}
 st.markdown("**Call-back requests**")
 st.caption("Contact details are masked because this demo page has no login. A real team view needs staff sign-in before showing them in full.")
 cb = [{"When": r["ts"], "Name": r["name"][:1] + "…" if r["name"] else "", "Phone": mask(r["phone"]), "Email": mask(r["email"]), "Best time": r["best_time"], "Why": REASON.get(r["reason"], r["reason"]), "Business": r["profile"].get("business_type"), "City": r["profile"].get("city"), "Needs": ", ".join(r["profile"].get("needs", []))} for r in callback.queue()]

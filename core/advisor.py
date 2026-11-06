@@ -95,6 +95,8 @@ ORDER = ["business_type", "needs", "city", "city_tier", "employees", "locations"
 TXT = {
  "welcome": {"en": "Hi! I'm your Accel Business advisor. Tell me about your business and I'll suggest the right plan with one clear monthly price. Hindi or English, both are fine.", "hi": "नमस्ते! मैं आपका Accel Business सलाहकार हूँ।", "hinglish": "Namaste! Main aapka Accel Business advisor hoon."},
  "injection": {"en": "I can't share or change how I work, but I'm happy to help you find the right plan.", "hi": "मैं अपने निर्देश साझा या बदल नहीं सकता, पर सही प्लान ढूँढने में ज़रूर मदद करूँगा।", "hinglish": "Main apne instructions share ya change nahi kar sakta, par sahi plan dhoondhne mein zaroor help karunga."},
+ "decline_promise": {"en": "I can't promise that; it depends on the plan and your site.", "hi": "मैं इसका वादा नहीं कर सकता; यह प्लान और आपकी जगह पर निर्भर करता है।", "hinglish": "Main iska promise nahi kar sakta; yeh plan aur aapki site par depend karta hai."},
+ "decline_price": {"en": "I can't change prices: every customer sees the same price.", "hi": "मैं कीमत नहीं बदल सकता: सभी ग्राहकों के लिए कीमत एक जैसी है।", "hinglish": "Main price change nahi kar sakta: sabke liye price same hai."},
  "discount": {"en": "I can't offer discounts or change prices: every customer sees the same price.", "hi": "मैं छूट नहीं दे सकता और न ही कीमत बदल सकता हूँ: सभी ग्राहकों के लिए कीमत एक जैसी है।", "hinglish": "Main discount nahi de sakta ya price change nahi kar sakta: sabke liye price same hai."},
  "off_topic": {"en": "I can only help with Accel Business plans.", "hi": "मैं केवल Accel Business प्लान में मदद कर सकता हूँ।", "hinglish": "Main sirf Accel Business plans mein help kar sakta hoon."},
  "pii": {"en": "For your safety, please don't share Aadhaar, PAN or bank numbers in chat. I haven't saved it. You can submit documents securely in the KYC step later.", "hi": "आपकी सुरक्षा के लिए कृपया चैट में आधार, पैन या बैंक नंबर न भेजें। मैंने इसे सेव नहीं किया है। दस्तावेज़ आप बाद में KYC चरण में सुरक्षित रूप से दे सकते हैं।", "hinglish": "Aapki safety ke liye chat mein Aadhaar, PAN ya bank number mat bhejiye. Maine ise save nahi kiya. Documents aap baad mein KYC step mein safely de sakte hain."},
@@ -266,7 +268,7 @@ def extract_profile(text: str, p: Profile, awaiting: str | None = None) -> dict:
     if re.search(r"\b(just me|only me|myself|akela|sirf main)\b|अकेला|सिर्फ मैं", t): u["employees"] = 1
     m = re.search(NUM + r"\s*(?:outlets?|branch(?:es)?|locations?|sites?|stores?|shops?|offices?|clinics?|restaurants?|units?|salons?|pharmac(?:y|ies)|kiranas?|firms?|centres?|centers?|cafes?|plants?|workshops?|hotels?|dukaan|dukan|factories|ब्रांच|लोकेशन|आउटलेट|दुकानें|दुकान|शाखा)", t)
     if m and num(m.group(1)) is not None: u["locations"] = num(m.group(1))
-    if re.search(r"single (shop|location|site|store|office)|only one (shop|location|site|branch)|one branch|ek hi|एक ही", t): u["locations"] = 1
+    if re.search(r"single (shop|location|site|store|office)|only one (shop|location|site|branch)|one branch|ek hi|एक ही|\bek (jagah|location|branch|office|dukan|shop|outlet)\b|एक (जगह|लोकेशन|ब्रांच|दुकान|ऑफ़िस|आउटलेट)", t): u["locations"] = 1
     found = _find_city(t, text, awaiting)
     if found: u["city"], u["city_tier"] = found.title(), CITY_TIER[found]
     # An unknown word after "in" may be a town, but must not overwrite a city we already have ("drops in evening").
@@ -529,6 +531,14 @@ def _faq(s, text, lang) -> str | None:
     return None
 
 
+def _rest_of(s, text, asked, found, lang, llm_client) -> str | None:
+    """A question we decline can arrive with real answers ("free upgrade? clinic in Delhi, 6 staff"): use them instead of asking again.
+    Only before a plan exists, so a figure in a haggle can never change a quote."""
+    rest = asked.sub(" ", text)
+    if s.rec or asked.search(rest) or not extract_profile(rest, s.profile, None): return None
+    return _route(s, rest, found, lang, llm_client)
+
+
 def _route(s, text, found, lang, llm_client):
     sensitive = [f for f in found if f != "GSTIN"]
     if sensitive:
@@ -542,8 +552,10 @@ def _route(s, text, found, lang, llm_client):
     if G.FRUSTRATED.search(text):
         _do_handoff(s, "frustration")
         return _lang_text("handoff", lang)
-    if G.DISCOUNT.search(text) and not G.PROMISE_ASK.search(text) and not re.search(r"\d+\s*(staff|employee|people|log\b)", text, re.I):
-        return _join(_lang_text("discount", lang), _steer(s))
+    if G.DISCOUNT.search(text) and not G.PROMISE_ASK.search(text) and (re.search(r"discount|% ?off|छूट|डिस्काउंट", text, re.I) or not re.search(r"\d+\s*(staff|employee|people|log\b)", text, re.I)):
+        rest = _rest_of(s, text, G.DISCOUNT, found, lang, llm_client)
+        # Beside a plan, the shorter words: the reply check rightly objects to "discount" next to a price.
+        return _join(_lang_text("decline_price" if rest and s.rec and s.rec.quote else "discount", lang), rest or _steer(s))
     if G.OFF_TOPIC.search(text):
         return _join(_lang_text("off_topic", lang), _steer(s))
     if G.PAUSE.search(text):
@@ -571,11 +583,18 @@ def _route(s, text, found, lang, llm_client):
             _do_handoff(s, "manufacturer_custom")
             return _join(t, _lang_text("custom", lang))
         return _join(t, _steer(s))
+    # A custom need at a factory goes to a person (rule 7), whichever order the owner mentioned the two in.
+    factory = s.profile.business_type == "manufacturer" or u.get("business_type") == "manufacturer"
+    if factory and s.handoff != "manufacturer_custom" and (G.asks_custom(text) or any(who == "user" and G.asks_custom(said) for who, said in s.history)):
+        _merge(s, u)
+        _do_handoff(s, "manufacturer_custom")
+        return _lang_text("custom", lang)
     if G.PROMISE_ASK.search(text):
         if s.rec and s.rec.quote:
             l = max(s.rec.quote.lines, key=lambda x: x.install_days)
             return _lang_text("promise", lang, name=l.name, d=l.install_days)
-        return _join(_lang_text("promise0", lang), _steer(s))
+        rest = _rest_of(s, text, G.PROMISE_ASK, found, lang, llm_client)
+        return _join(_lang_text("decline_promise" if rest and s.rec and s.rec.quote else "promise0", lang), rest or _steer(s))
     faq = _faq(s, text, lang)
     if faq:
         _merge(s, {k: v for k, v in u.items() if k != "needs"})

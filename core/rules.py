@@ -185,7 +185,7 @@ def recommend(prof: Profile) -> Recommendation:
     if prof.business_type == "manufacturer" and unmet:
         rec.handoff = rec.handoff or "manufacturer_custom"
     if "dedicated_bandwidth" in needs and not ({"P05", "P06"} & set(rec.items)):
-        rec.handoff = rec.handoff or "manufacturer_custom"
+        rec.handoff = rec.handoff or ("manufacturer_custom" if prof.business_type == "manufacturer" else "needs_scoping")
     return rec
 
 

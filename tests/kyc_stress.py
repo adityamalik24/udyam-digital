@@ -2,7 +2,7 @@
 1. Degrades every applicant's documents the way real uploads get degraded. Clean applicants must never be rejected,
    and applicants with a planted problem must never verify.
 2. Makes cut-and-paste forgeries of clean GST certificates, copying one printed GSTIN character over another.
-   None may verify, whether straight, dim or tilted."""
+   None may verify, whether straight, dim, tilted or in a PDF."""
 import io, os, sys
 from collections import Counter
 from multiprocessing import Pool
@@ -14,7 +14,7 @@ import pytesseract
 from PIL import Image, ImageEnhance, ImageFilter
 from core.kyc import registry
 from core.kyc.ocr import _ink
-from core.kyc.pipeline import SPECIMEN_REVIEW, load_specimen, verify_images
+from core.kyc.pipeline import SPECIMEN_REVIEW, load_specimen, open_upload, verify_images
 
 CLEAN = {k for k, (verdict, _) in SPECIMEN_REVIEW.items() if verdict == "verified"}
 STRAIGHT_CLEAN = {"K03": "27XUIXG0767D1ZP", "K08": "24XORXG9365M1Z3", "K09": "37LDYXK0296F1ZB", "K12": "37NBLXS1145E1ZU"}
@@ -44,6 +44,10 @@ def shade(im):
     return Image.fromarray((a * np.linspace(1, .55, a.shape[1])[None, :, None]).astype("uint8"))
 
 
+def as_pdf(im):
+    b = io.BytesIO(); im.convert("RGB").save(b, "PDF", resolution=150); b.seek(0); return open_upload(b)[0][0]
+
+
 def perspective(im):
     w, h = im.size
     return im.convert("RGB").transform((w, h), Image.PERSPECTIVE, (1, .02, -10, .01, 1, -10, 1e-5, 1e-5), Image.BICUBIC, fillcolor="white")
@@ -52,7 +56,7 @@ def perspective(im):
 FORMS = {"as sent": lambda i: i, "jpeg 70": jpeg(70), "jpeg 30": jpeg(30), "jpeg 12": jpeg(12), "75% size": scale(.75), "50% size": scale(.5), "35% size": scale(.35), "150% size": scale(1.5),
          "tilt +3": turn(3), "tilt -7": turn(-7), "tilt +11": turn(11), "tilt +20": turn(20), "sideways 90": turn(90), "upside down": turn(180), "sideways 270": turn(270),
          "dim": bright(.5), "low contrast": lambda i: ImageEnhance.Contrast(i.convert("RGB")).enhance(.45), "blur 1": blur(1), "blur 2": blur(2), "blur 4": blur(4),
-         "grain 15": grain(15), "grain 40": grain(40), "shadow": shade, "perspective": perspective, "greyscale": lambda i: i.convert("L"), "transparency": lambda i: i.convert("RGBA")}
+         "grain 15": grain(15), "grain 40": grain(40), "shadow": shade, "perspective": perspective, "greyscale": lambda i: i.convert("L"), "transparency": lambda i: i.convert("RGBA"), "pdf": as_pdf}
 
 
 def degrade(job):
@@ -78,7 +82,7 @@ def forge(job):
     x0, x1, y0, y1 = gstin_line(img); pitch = (x1 - x0 + 1) / 15
     box = lambda n: (round(x0 + n * pitch), y0, round(x0 + (n + 1) * pitch), y1)
     img.paste(img.crop(box(q)).resize((box(p)[2] - box(p)[0], y1 - y0)), box(p)[:2])
-    forms = {"straight": img, "dim": bright(.5)(img), "tilted": turn(3)(img)}
+    forms = {"straight": img, "dim": bright(.5)(img), "tilted": turn(3)(img), "pdf": as_pdf(img)}
     return k, p, {n: verify_images({**s, "gst": x}).verdict for n, x in forms.items()}
 
 
@@ -101,5 +105,5 @@ if __name__ == "__main__":
     print(f"{'form':14} clean applicants verified of {len(CLEAN)}")
     for n in FORMS: print(f"{n:14} {sum(r[1] == n and r[0] in CLEAN and r[2] == 'verified' for r in runs)}")
     tally = Counter((n, v) for _, _, res in forged for n, v in res.items()); slipped = sum(v == "verified" for (_, v), c in tally.items() for _ in range(c))
-    print(f"Forgeries: {len(forged)} x 3 forms, {slipped} verified"); [print(" ", k, v) for k, v in sorted(tally.items())]
+    print(f"Forgeries: {len(forged)} x 4 forms, {slipped} verified"); [print(" ", k, v) for k, v in sorted(tally.items())]
     sys.exit(1 if bad or slipped else 0)

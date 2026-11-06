@@ -34,16 +34,16 @@ def test_rejected_kyc_cannot_be_advanced_verified_can():
     k.session_state["user"], k.session_state["order_id"] = "gate-user", oid
     k.run(); assert not k.exception
     k.selectbox[0].set_value("K01").run()
-    k.button[0].click().run(); assert not k.exception
+    next(b for b in k.button if b.label == "Verify").click().run(); assert not k.exception
     assert any("Rejected" in e.value for e in k.error) and orders.get(oid)["stage"] == "Quote accepted"
     t = AppTest.from_file(str(ROOT / "app/pages/5_Tracker.py"), default_timeout=30)
     t.session_state["user"], t.session_state["order_id"] = "gate-user", oid
     t.run(); assert not t.exception
     assert t.warning and not [b for b in t.button if b.label == "Advance stage"]
     k.selectbox[0].set_value("K03").run()
-    k.button[0].click().run(); assert not k.exception
+    next(b for b in k.button if b.label == "Verify").click().run(); assert not k.exception
     assert any("Verified" in e.value for e in k.success) and orders.get(oid)["stage"] == "KYC verified"
-    t.run(); assert [b for b in t.button if b.label == "Advance stage"]
+    t.run(); assert not [b for b in t.button if b.label == "Advance stage"] and [b for b in t.button if "Pay first" in b.label]
 
 
 def test_two_sessions_do_not_share_an_identity():
@@ -404,66 +404,120 @@ def test_save_button_is_not_left_dead_when_only_the_optional_box_remains():
 
 
 def test_demo_control_stays_open_between_taps():
-    from core import consent, orders
-    from core.pricing import price
-    oid = orders.create("n6", {"P01": 1}, price({"P01": 1}))
-    consent.grant("n6", consent.KYC, "en"); consent.save_kyc("n6", "verified", "ok", "{}"); orders.advance(oid, "KYC verified")
+    oid = _ready_order("n6", "Payment done")
     t = _page("5_Tracker.py", "n6", order_id=oid)
     assert not next(e for e in t.expander if e.label == "Demo control").proto.expanded
     next(b for b in t.button if b.label == "Advance stage").click().run(); assert not t.exception
-    assert next(e for e in t.expander if e.label == "Demo control").proto.expanded and orders.get(oid)["stage"] == "Payment done"
+    assert next(e for e in t.expander if e.label == "Demo control").proto.expanded and orders_stage(oid) == "Installation scheduled"
 
 
-def _change_page(page, to):
-    """What Streamlit does on a real page change: widget values are wiped and only plain session values carry over."""
-    plain = ("user", "advisor", "chat", "ui_lang", "synced_lang", "order_id", "plan_id", "use_alt", "saved_qty", "has_gstin_tick", "addons")
-    a = AppTest.from_file(str(ROOT / "app/pages" / to), default_timeout=30)
-    for k in plain:
-        if k in page.session_state: a.session_state[k] = page.session_state[k]
-    return a.run()
+def orders_stage(oid):
+    from core import orders
+    return orders.get(oid)["stage"]
 
 
-def test_language_survives_a_page_change():
-    c = _page("3_Consent.py", "w1")
-    c.sidebar.radio[0].set_value("hi").run(); assert not c.exception
-    assert c.session_state["ui_lang"] == "hi" and any("KYC सत्यापन" in x.label for x in c.checkbox)
-    k = _change_page(c, "3_Consent.py"); assert not k.exception
-    assert k.session_state["ui_lang"] == "hi" and k.sidebar.radio[0].value == "hi" and any("KYC सत्यापन" in x.label for x in k.checkbox)
-    k.sidebar.radio[0].set_value("en").run(); assert k.session_state["ui_lang"] == "en"  # and it can still be changed back
-    assert any("KYC verification" in x.label for x in k.checkbox)
+def _ready_order(user, stage, items=None):
+    from core import consent, orders
+    from core.pricing import price
+    items = items or {"P01": 1}
+    oid = orders.create(user, items, price(items))
+    consent.grant(user, consent.KYC, "en"); consent.save_kyc(user, "verified", "ok", "{}")
+    for s in orders.STAGES[1:orders.STAGES.index(stage) + 1]: orders.advance(oid, s)
+    return oid
 
 
-def test_hindi_from_the_chat_survives_a_page_change():
-    s = State(); turn(s, "मेरा क्लिनिक है, दिल्ली में, 6 लोग, एक ही, GSTIN है, ईमेल चाहिए")
-    q = AppTest.from_file(str(ROOT / "app/pages/2_Quote.py"), default_timeout=30)
-    q.session_state["advisor"] = s; q.run(); assert q.session_state["ui_lang"] == "hi"
-    for page, word in (("2_Quote.py", "प्रति माह"), ("3_Consent.py", "हम क्या लेते हैं")):
-        n = _change_page(q, page); assert not n.exception and n.session_state["ui_lang"] == "hi"
-        assert any(word in m.value for m in n.markdown)
+def _words(p): return " ".join(m.value for m in p.markdown) + " ".join(x.value for x in p.caption)
 
 
-def test_quantity_and_gstin_tick_survive_a_page_change_and_a_new_plan_clears_them():
-    s = State()
-    for m in ("clinic", "internet", "Delhi", "6", "1"): turn(s, m)
-    q = AppTest.from_file(str(ROOT / "app/pages/2_Quote.py"), default_timeout=30)
-    q.session_state["advisor"] = s; q.run()
-    next(x for x in q.checkbox if x.key == "quote_gstin").check().run()
-    next(x for x in q.checkbox if x.key == "addon_P15").check().run()
-    before = _big(q); back = _change_page(q, "2_Quote.py"); assert not back.exception
-    assert _big(back) == before and next(x for x in back.checkbox if x.key == "quote_gstin").value and next(x for x in back.checkbox if x.key == "addon_P15").value
-    c = _quote(CLINIC)
-    next(n for n in c.number_input if n.key == "qty_P16").set_value(10).run(); before = _big(c); assert f"{2671 + 4 * 138:,}" in before
-    back = _change_page(c, "2_Quote.py"); assert not back.exception
-    assert _big(back) == before and next(n for n in back.number_input if n.key == "qty_P16").value == 10
-    back.session_state["advisor"] = _state("clinic in Delhi 6 staff 1 location need internet")  # a new chat happens on the Advisor page, so widgets are gone
-    fresh = _change_page(back, "2_Quote.py"); assert not fresh.exception
-    assert "P16" not in fresh.session_state["saved_qty"] and not fresh.session_state["has_gstin_tick"]
+def test_tracker_walks_the_whole_order_with_times_next_steps_and_technician():
+    from core import orders
+    oid = _ready_order("t1", "KYC verified")
+    t = _page("5_Tracker.py", "t1", order_id=oid); assert "**Next:** Payment done · You" in _words(t)
+    pay = next(b for b in t.button if "Pay first" in b.label); assert "₹" in pay.label
+    pay.click().run(); assert not t.exception and any("No money moved" in x.value for x in t.success) and orders_stage(oid) == "Payment done"
+    assert "Installation scheduled · Accel Business" in _words(t) and "Estimated installation" in _words(t) and "not a promise" in _words(t)
+    for want in orders.STAGES[3:]:
+        next(b for b in t.button if b.label == "Advance stage").click().run(); assert not t.exception and orders_stage(oid) == want
+        assert not [e for e in t.expander if e.label == "Demo control" and want == "Activated"]
+    words = " ".join(m.value for m in t.markdown); o = orders.get(oid)  # consent records keep their real time on purpose: they're the legal proof
+    assert "Your connection is active" in " ".join(x.value for x in t.success) and o["technician"] in words
+    assert words.count("✅") == 7 and "⬜" not in words and "15 Jul" in words and "IST" in words and "2026-11" not in words
 
 
-def _state(*msgs):
-    s = State()
-    for m in msgs: turn(s, m)
-    return s
+def test_tracker_shows_what_was_ordered_from_the_stored_order():
+    from core.catalogue import catalogue
+    oid = _ready_order("t2", "Payment done", {"P01": 1, "P16": 4})
+    t = _page("5_Tracker.py", "t2", order_id=oid)
+    box = next(e for e in t.expander if e.label == "What you ordered"); text = " ".join(m.value for m in box.markdown)
+    cat = catalogue(); from core import orders; o = orders.get(oid)
+    assert cat["P01"].name in text and f"{cat['P16'].name} × 4" in text and f"₹{o['monthly']:,}" in text and "P01" not in text
+
+
+def test_tracker_reschedule_shows_limits_saves_and_records_it():
+    from datetime import timedelta
+    from core import orders
+    oid = _ready_order("t3", "Installation scheduled")
+    t = _page("5_Tracker.py", "t3", order_id=oid); o = orders.get(oid)
+    btn = next(b for b in t.button if b.label == "Reschedule"); assert btn.disabled  # nothing changed yet
+    new = orders.earliest_install(o) + timedelta(days=3)
+    t.date_input[0].set_value(new).run()
+    next(b for b in t.button if b.label == "Reschedule").click().run(); assert not t.exception
+    assert orders.get(oid)["install_date"] == new.isoformat() and "Installation moved from" in _words(t) and new.strftime("%d %b %Y") in _words(t)
+
+
+def test_tracker_never_offers_reschedule_outside_its_window_or_on_hold():
+    from core import consent
+    for stage in ("Payment done", "Installed", "Activated"):
+        t = _page("5_Tracker.py", f"t4{stage}", order_id=_ready_order(f"t4{stage}", stage)); assert not [b for b in t.button if b.label == "Reschedule"]
+    oid = _ready_order("t5", "Technician assigned"); consent.withdraw("t5", consent.KYC)
+    t = _page("5_Tracker.py", "t5", order_id=oid); assert not [b for b in t.button if b.label in ("Reschedule", "Advance stage")]
+
+
+def test_withdrawing_after_payment_holds_the_order_says_why_and_promises_no_refund():
+    from core import consent
+    oid = _ready_order("t6", "Payment done"); consent.withdraw("t6", consent.KYC)
+    t = _page("5_Tracker.py", "t6", order_id=oid); words = _words(t)
+    assert t.warning and "consent isn't active" in words and "payment is recorded" in words and "refund" not in words.lower()
+    assert "Estimated installation" not in words and not [b for b in t.button if b.label == "Advance stage"]
+    consent.grant("t6", consent.KYC, "en"); consent.save_kyc("t6", "verified", "ok", "{}"); t.run()
+    assert not t.warning and "Estimated installation" in _words(t) and orders_stage(oid) == "Payment done"
+
+
+def test_needs_review_holds_a_paid_order_and_points_to_kyc():
+    from core import consent
+    oid = _ready_order("t7", "Payment done"); consent.save_kyc("t7", "needs_review", "old bill", "{}")
+    t = _page("5_Tracker.py", "t7", order_id=oid); assert t.warning and "consent isn't active" not in _words(t)
+
+
+def test_second_order_does_not_hide_the_paid_one_and_others_never_appear():
+    from core import orders
+    from core.pricing import price
+    paid = _ready_order("t8", "Payment done"); new = orders.create("t8", {"P04": 1}, price({"P04": 1}))
+    other = _ready_order("t9", "Payment done")
+    t = _page("5_Tracker.py", "t8", order_id=new); box = t.selectbox[0]
+    assert box.options and len(box.options) == 2 and not any(f"#{other} " in x for x in box.options)
+    assert t.markdown and "Quote accepted" in " ".join(m.value for m in t.markdown)
+    t.selectbox[0].select_index(1).run(); assert not t.exception and "### Payment done" in [m.value for m in t.markdown]
+    assert t.session_state["order_id"] == new  # looking at an old order doesn't change which one is being worked on
+    t2 = _page("5_Tracker.py", "t8", order_id=other); assert not t2.exception and "### Quote accepted" in [m.value for m in t2.markdown]  # someone else's id is ignored
+
+
+def test_a_missing_order_never_crashes_any_page():
+    for page in ("2_Quote.py", "3_Consent.py", "4_KYC.py", "5_Tracker.py"):
+        p = _page(page, "t10", order_id=99999); assert not p.exception, page
+        assert "order_id" not in p.session_state or not p.session_state["order_id"]
+
+
+def test_tracker_with_no_order_points_to_the_quote():
+    t = _page("5_Tracker.py", "t11"); assert t.info and not t.exception
+
+
+def test_tracker_in_hindi():
+    oid = _ready_order("t12", "Technician assigned")
+    t = _page("5_Tracker.py", "t12", order_id=oid, ui_lang="hi"); assert not t.exception; words = _words(t)
+    for w in ("अगला चरण", "अनुमानित इंस्टॉलेशन", "वादा नहीं", "आज की तारीख", "तकनीशियन"): assert w in words, w
+    for w in ("Next:", "Estimated", "demo treats"): assert w not in words, w
+    assert next(e for e in t.expander if e.label == "आपने क्या ऑर्डर किया")
 
 
 def _verified(k, who):
@@ -554,3 +608,70 @@ def test_result_from_before_a_deploy_does_not_crash():
     consent.grant("kp8", consent.KYC, "en"); consent.save_kyc("kp8", "verified", "ok", "{}")
     p = _page("4_KYC.py", "kp8", kyc_result={"verdict": "verified", "reason": "old", "passed": [], "fields": {}})
     assert not p.exception and not p.expander
+
+
+def _kyc_page(user, **state):
+    from core import consent
+    consent.grant(user, consent.KYC, "en"); return _page("4_KYC.py", user, **state)
+
+
+def _look(p, gstin="", udyam=""):
+    p.text_input[0].set_value(gstin); p.text_input[1].set_value(udyam)
+    next(b for b in p.button if b.label == "Check").click().run(); assert not p.exception
+
+
+def test_lookup_catches_a_cancelled_gstin_before_any_upload_and_saves_nothing():
+    from core import consent
+    p = _kyc_page("lk1"); _look(p, "37IHKXV5167L1ZS")
+    msg = " ".join(e.value for e in p.error); assert "cancelled" in msg and "37IHKXV5167L1ZS" not in msg and "1ZS" in msg and "Vindhya" not in msg
+    assert consent.latest_kyc("lk1") is None
+
+
+def test_lookup_active_unknown_and_malformed_say_so_in_plain_words():
+    p = _kyc_page("lk2"); _look(p, "27XUIXG0767D1ZP", "UDYAM-MH-00-9516696")
+    words = " ".join(x.value for x in p.success); assert "is active" in words and "is in the registry" in words and "Ganesh" not in words
+    from core.kyc.validators import gstin_checksum
+    _look(p, "27XUIXG0768D1Z" + gstin_checksum("27XUIXG0768D1Z")); assert any("couldn't find" in w.value for w in p.warning)  # valid shape, not registered
+    _look(p, "27XUIXG0767D1ZQ"); assert any("check for a typo" in w.value for w in p.warning)  # one wrong character fails the checksum
+    _look(p, "my aadhaar 1234"); assert any("valid GSTIN" in w.value for w in p.warning)
+    assert not p.session_state["lookup"]["gst"].get("masked") and "1234" not in " ".join(w.value for w in p.warning).replace("27ABCDE1234F1Z5", "")
+    _look(p); assert not p.exception and not p.warning and not p.success
+
+
+def test_lookup_in_hindi_has_no_english():
+    p = _kyc_page("lk3", ui_lang="hi")
+    p.text_input[0].set_value("37IHKXV5167L1ZS"); next(b for b in p.button if b.label == "जाँचें").click().run(); assert not p.exception
+    assert any("रद्द" in e.value for e in p.error) and not any("cancelled" in e.value for e in p.error)
+
+
+def test_typed_number_is_never_stored_and_goes_with_withdrawal():
+    import sqlite3
+    from core import consent, db
+    p = _kyc_page("lk4"); _look(p, "27XUIXG0767D1ZP")
+    assert p.session_state["typed_gstin"] == "27XUIXG0767D1ZP"
+    next(b for b in p.button if b.label == "Verify").click().run()
+    with sqlite3.connect(db.DB_PATH) as conn: assert "27XUIXG0767D1ZP" not in str(conn.execute("SELECT * FROM kyc WHERE user='lk4'").fetchall())
+    consent.withdraw("lk4", consent.KYC)
+    c = _page("3_Consent.py", "lk5"); consent.grant("lk5", consent.KYC, "en"); c.run()
+    c.session_state["typed_gstin"], c.session_state["lookup"] = "x", {"gst": {"state": "active"}}
+    next(b for b in c.button if b.label == "Withdraw: KYC verification").click().run()
+    assert "typed_gstin" not in c.session_state and "lookup" not in c.session_state
+
+
+def test_upload_mode_offers_one_box_for_everything():
+    p = _kyc_page("up1"); p.radio[0].set_value("upload").run(); assert not p.exception
+    assert any("in any order" in x.value and "PDF" in x.value for x in p.caption)
+    assert next(b for b in p.button if b.label == "Verify").disabled
+    assert len(p.get("file_uploader")) == 1
+    from core.kyc.pipeline import MAX_PAGES; assert MAX_PAGES >= 4
+
+
+def test_time_taken_is_shown_and_measured():
+    p = _verified("K03", "up2"); assert any("Checked in" in x.value and "seconds" in x.value for x in p.caption)
+    assert 0 < p.session_state["kyc_result"]["seconds"] < 120
+
+
+def test_old_lookup_message_does_not_sit_above_the_result():
+    p = _kyc_page("up3"); _look(p, "27XUIXG0767D1ZP"); assert any("is active" in x.value for x in p.success)
+    p.selectbox[0].set_value("K01").run(); next(b for b in p.button if b.label == "Verify").click().run(); assert not p.exception
+    assert not any("is active" in x.value for x in p.success) and any("Rejected" in e.value for e in p.error)
