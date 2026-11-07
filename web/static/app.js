@@ -8,7 +8,7 @@ let voiceNote = null;    // {tone, text} shown under the chat box
 let voiceAsk = false;    // the first-use voice notice is open
 let formState = {};      // call-back form values, kept across redraws
 let openFolds = new Set(); // which sections the owner has opened
-let kycMode = "specimen", kycApplicant = "K02", showDocs = false, kycProblems = [], pollTimer = null;
+let kycMode = "specimen", kycApplicant = "K02", showDocs = false, kycProblems = [], pollTimer = null, kycNoGstin = false;
 
 function h(tag, attrs, ...kids) {
   const el = document.createElement(tag);
@@ -464,6 +464,7 @@ function drawKyc(v) {
       ] : [
         h("p", { class: "small muted" }, v.upload_intro),
         v.no_gst && note("neutral", v.no_gst),
+        v.no_gstin_label ? check(v.no_gstin_label, kycNoGstin, e => { kycNoGstin = e.target.checked; }) : null,
         files,
         h("label", { class: "btn secondary full", for: "kycfiles" }, v.choose),
         v.pending ? h("div", { class: "qty" }, h("span", null, v.pending_label), button(v.clear, async () => { await api("/api/kyc/upload", undefined, "DELETE").catch(showError); kycProblems = []; route(); }, "btn text")) : null,
@@ -471,7 +472,7 @@ function drawKyc(v) {
       ]),
     job.error && note("danger", job.error),
     job.busy ? h("div", { class: "stack", role: "status" }, h("progress", { max: job.total || 1, value: job.done }), h("p", null, job.text), h("p", { class: "small muted" }, job.hint))
-      : button(v.verify, (e) => act("/api/kyc/verify", kycMode === "specimen" ? { mode: "specimen", applicant: kycApplicant } : { mode: "upload" }, (nv) => { showDocs = false; drawKyc(nv); })(e), "btn primary full", { disabled: !canVerify }),
+      : button(v.verify, (e) => act("/api/kyc/verify", kycMode === "specimen" ? { mode: "specimen", applicant: kycApplicant } : { mode: "upload", no_gstin: !!(v.no_gstin_label && kycNoGstin) }, (nv) => { showDocs = false; drawKyc(nv); })(e), "btn primary full", { disabled: !canVerify }),
     r && h("section", { class: "stack", id: "kycresult" }, h("h2", null, r.who),
       note({ verified: "success", needs_review: "warning", rejected: "danger" }[r.verdict], h("strong", null, r.verdict_label), r.reason),
       r.next && h("p", { class: "small" }, r.next),

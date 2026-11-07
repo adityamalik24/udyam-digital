@@ -8,6 +8,7 @@ DOC_NAME = {"gst": {"en": "GST certificate", "hi": "GST प्रमाणपत
 ISSUE = {
  "missing_gst": ("gst", "The GST certificate was not provided.", "GST प्रमाणपत्र नहीं दिया गया।"),
  "missing_udyam": ("udyam", "The Udyam certificate was not provided.", "Udyam प्रमाणपत्र नहीं दिया गया।"),
+ "no_gst_declaration": ("gst", "No GST certificate was sent, and the box saying the business has no GSTIN wasn't ticked, so a person will check.", "GST प्रमाणपत्र नहीं भेजा गया और \"बिज़नेस के पास GSTIN नहीं है\" वाला बॉक्स नहीं चुना गया, इसलिए कोई व्यक्ति जाँच करेगा।"),
  "missing_id": ("id", "The signatory ID was not provided.", "हस्ताक्षरकर्ता की ID नहीं दी गई।"),
  "missing_bill": ("bill", "The address proof was not provided.", "पते का प्रमाण नहीं दिया गया।"),
  "blurry_gst": ("gst", "The GST certificate is too blurred to read reliably. Please upload a clearer copy.", "GST प्रमाणपत्र इतना धुंधला है कि भरोसे से पढ़ा नहीं जा सकता। कृपया साफ़ कॉपी अपलोड करें।"),
@@ -61,6 +62,7 @@ ISSUE = {
 # check code: (document, English, Hindi)
 PASSED = {
  "gst_lookup": ("gst", "Found in the GST registry", "GST रजिस्ट्री में मिला"),
+ "no_gstin_declared": ("gst", "You declared the business has no GSTIN, and your plan doesn't need one", "आपने बताया कि बिज़नेस के पास GSTIN नहीं है, और आपके प्लान को इसकी ज़रूरत नहीं"),
  "gstin_match": ("gst", "GSTIN on certificate matches registry", "प्रमाणपत्र का GSTIN रजिस्ट्री से मेल खाता है"),
  "gst_active": ("gst", "GST registration is active", "GST पंजीकरण सक्रिय है"),
  "legal_name": ("gst", "Legal name matches registry", "कानूनी नाम रजिस्ट्री से मेल खाता है"),

@@ -665,3 +665,31 @@ def test_ab_test_can_be_switched_off(monkeypatch):
     assert {session.Session().ab for _ in range(40)} == {"A"}
     monkeypatch.setenv("AB_TEST", "on")
     assert {session.Session().ab for _ in range(60)} == {"A", "B"}
+
+
+def test_no_gstin_tick_on_a_plan_that_needs_none():
+    def start():
+        c = client(); c.get("/api/view/advisor")
+        v = post(c, "/api/advisor/message", {"text": "Kirana store in Delhi, 2 staff, 1 shop, no GST, need internet for UPI"}).json()
+        assert v["has_plan"], v["chat"][-1]
+        assert post(c, "/api/quote/accept").status_code == 200
+        post(c, "/api/consent", {"kyc": True})
+        for key in ("id", "bill"):
+            c.post("/api/kyc/upload", content=(DATA / "kyc_documents" / f"K03_{FILES[key]}.png").read_bytes(), headers={**H, "X-File-Name": "p.png"})
+        return c
+    c = start()
+    assert c.get("/api/view/kyc").json()["no_gstin_label"]
+    post(c, "/api/kyc/verify", {"mode": "upload", "no_gstin": True})
+    assert wait_for_kyc(c)["result"]["verdict"] == "verified"
+    c = start()
+    post(c, "/api/kyc/verify", {"mode": "upload"})
+    r = wait_for_kyc(c)["result"]
+    assert r["verdict"] == "needs_review" and "wasn't ticked" in r["reason"]
+
+
+def test_no_gstin_tick_is_not_offered_when_the_plan_needs_a_gstin():
+    c = client(); c.get("/api/view/advisor")
+    assert post(c, "/api/advisor/message", {"text": "CA firm Mumbai 12 staff 1 office GST yes, want a toll free number so customers can call me"}).json()["has_plan"]
+    post(c, "/api/quote/accept"); post(c, "/api/consent", {"kyc": True})  # a toll-free number is sold only with a GSTIN
+    v = c.get("/api/view/kyc").json()
+    assert "upload_intro" in v and v["no_gstin_label"] is None and v["no_gst"] is None

@@ -445,3 +445,18 @@ def test_huge_photos_open_small_and_huge_pngs_are_refused():
     class F(io.BytesIO):
         size = 0
     assert open_upload(F(b3.getvalue())) == ([], "too_big")
+
+
+def test_no_gstin_declaration_option_b():
+    """Option B (team decision, 2026-11-08): without a GST certificate, the owner must tick 'my business has no GSTIN'."""
+    s = load_specimen("K03")
+    yes = verify_files([s["id"], s["bill"]], gst_optional=True, no_gstin_declared=True)
+    assert yes.verdict == "verified" and yes.fields.get("no_gstin_declared") is True
+    assert any("declared" in p for p in yes.passed)
+    no = verify_files([s["id"], s["bill"]], gst_optional=True, no_gstin_declared=False)
+    assert no.verdict == "needs_review" and set(_codes(no)) == {"no_gst_declaration"}  # one plain reason, not "missing GST" twice
+    assert "no_gstin_declared" not in no.fields
+    # The tick never excuses a certificate that was sent: K01's cancelled GSTIN is still rejected.
+    assert verify_files(list(load_specimen("K01").values()), gst_optional=True, no_gstin_declared=True).verdict == "rejected"
+    # And a plan that needs a GSTIN ignores the tick.
+    assert verify_files([s["id"], s["bill"]], gst_optional=False, no_gstin_declared=True).verdict == "needs_review"

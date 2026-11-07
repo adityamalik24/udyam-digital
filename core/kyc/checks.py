@@ -141,13 +141,18 @@ def _shown(doc: str, f: dict) -> dict:
     return out
 
 
-def check_applicant(docs: dict[str, Extracted], entered_gstin: str | None = None, today: date = TODAY, duplicates: tuple = (), gst_optional: bool = False) -> Result:
-    """gst_optional: this plan sells without a GSTIN, so an owner who has none is asked only for their ID and address proof."""
+def check_applicant(docs: dict[str, Extracted], entered_gstin: str | None = None, today: date = TODAY, duplicates: tuple = (), gst_optional: bool = False,
+                    no_gstin_declared: bool | None = None) -> Result:
+    """gst_optional: this plan sells without a GSTIN, so an owner who has none is asked only for their ID and address proof.
+    no_gstin_declared: whether they ticked "my business has no GSTIN". None means the screen didn't ask (the older front end);
+    False sends a no-GST upload to a person, because nothing then says the certificate was left out on purpose."""
     issues, checks = [], []
     def add(sev, code, **params):
         issues.append(Issue(sev, code, M.issue_text(code, params), params))
     def ok(code, **params): checks.append((code, params))
     skip = {"gst", "udyam"} if gst_optional and "gst" not in docs and "udyam" not in docs else set()
+    if skip and no_gstin_declared is False: add("review", "no_gst_declaration")
+    elif skip and no_gstin_declared: ok("no_gstin_declared")
     for key in ("gst", "udyam", "id", "bill"):
         if key not in docs and key not in skip: add("review", f"missing_{key}")
     for key in duplicates: add("review", f"duplicate_{key}")  # never quietly pick one of two conflicting documents
@@ -253,6 +258,7 @@ def check_applicant(docs: dict[str, Extracted], entered_gstin: str | None = None
             else: add("review", "signatory_vs_lead")
         elif record:  # nothing to compare the name with, so don't vouch for it
             add("review", "signatory_unchecked")
+    if skip and no_gstin_declared: out["no_gstin_declared"] = True  # kept with the result, as the record of what the owner declared
     out["issues"] = [x.code for x in issues]  # codes only, so a reviewer's queue needs no names or numbers
     res = dict(issues=issues, passed=[M.passed_text(c, p) for c, p in checks], fields=out, checks=checks,
                read={k: _shown(k, e.fields) for k, e in docs.items() if k not in unreadable})

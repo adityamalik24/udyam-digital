@@ -422,7 +422,7 @@ def kyc_upload_clear(request: Request):
     return {"ok": True}
 
 
-def _run_kyc(s: Session, applicant: str | None, blobs: list[bytes], typed: str | None, gst_optional: bool, signals: list | None = None) -> None:
+def _run_kyc(s: Session, applicant: str | None, blobs: list[bytes], typed: str | None, gst_optional: bool, signals: list | None = None, no_gstin: bool | None = None) -> None:
     """Runs apart from the request, so a slow read can't hit a proxy's time limit. The page polls for progress."""
     global _waiting
     job = s.kyc_job
@@ -434,7 +434,7 @@ def _run_kyc(s: Session, applicant: str | None, blobs: list[bytes], typed: str |
             if applicant:
                 r = KP.verify_images(KP.load_specimen(applicant), progress=lambda k, n, total: step(n, total))
             else:
-                r = KP.verify_files(LazyPages(blobs), typed, progress=step, gst_optional=gst_optional)
+                r = KP.verify_files(LazyPages(blobs), typed, progress=step, gst_optional=gst_optional, no_gstin_declared=no_gstin if gst_optional else None)
         blobs.clear()
         with s.lock:
             if consent.KYC not in consent.active(s.user):  # withdrawn while it was reading: nothing may be saved
@@ -470,7 +470,7 @@ async def kyc_verify(request: Request):
             blobs, typed, signals, s.pending, s.pending_signals = s.pending, s.typed_gstin, s.pending_signals, [], []
             s.typed_gstin = None
             s.kyc_job = {"state": "queued", "done": 0, "total": len(FILES) if applicant else len(blobs)}
-            threading.Thread(target=_run_kyc, args=(s, applicant, blobs, None if applicant else typed, not applicant and V.no_gst_needed(s), None if applicant else signals), daemon=True).start()
+            threading.Thread(target=_run_kyc, args=(s, applicant, blobs, None if applicant else typed, not applicant and V.no_gst_needed(s), None if applicant else signals, d.get("no_gstin") is True), daemon=True).start()
             return V.kyc(s)
     return await run_in_threadpool(work)
 

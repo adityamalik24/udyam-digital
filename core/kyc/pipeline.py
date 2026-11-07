@@ -110,10 +110,10 @@ def _content(ex) -> dict:
     return {k: v for k, v in ex.fields.items() if k != "gstin_reads"}
 
 
-def verify_files(images: list, entered_gstin: str | None = None, progress=None, gst_optional: bool = False) -> Result:
+def verify_files(images: list, entered_gstin: str | None = None, progress=None, gst_optional: bool = False, no_gstin_declared: bool | None = None) -> Result:
     """Files in any order, of any type mix: sort them, then run the same checks as everything else."""
     docs, duplicates, unused = sort_documents(images, progress)
-    r = check_applicant(docs, entered_gstin, duplicates=duplicates, gst_optional=gst_optional)
+    r = check_applicant(docs, entered_gstin, duplicates=duplicates, gst_optional=gst_optional, no_gstin_declared=no_gstin_declared)
     r.unused = unused
     return r
 
