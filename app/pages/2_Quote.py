@@ -1,7 +1,7 @@
 import sys; from pathlib import Path; sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import common as c
 import streamlit as st
-from core import consent, orders
+from core import consent, insights, orders
 from core.advisor import why_text, trade_text
 from core.catalogue import catalogue
 from core.pricing import price, first_payment, contract_total, summary_text
@@ -13,6 +13,7 @@ s = st.session_state.advisor
 if not (s.rec and s.rec.quote):
     st.info(t["no_plan"]); c.link("pages/1_Advisor.py", label=t["advisor"], icon="💬"); st.stop()
 cat, rec = catalogue(), s.rec
+segment = insights.segment_of(s.profile.business_type, s.profile.locations)
 hi = st.session_state.ui_lang == "hi"
 lang = "hi" if hi else "en"
 W = (lambda en, h: h if hi else en)
@@ -62,6 +63,9 @@ q = price(res["items"])  # always recomputed on the server from product ids, nev
 
 with price_box:
     st.markdown(f'<div class="big-price">₹{q.monthly:,}</div>{t["per_month"]}', unsafe_allow_html=True)
+    if c.variant() == "B":  # the A/B test on the dashboard: does a daily figure help owners accept?
+        st.caption(W(f"That's about ₹{round(q.monthly / 30):,} a day.", f"यानी लगभग ₹{round(q.monthly / 30):,} प्रति दिन।"))
+    c.event("quote_viewed", variant=c.variant())
     m1, m2, m3 = st.columns(3)
     m1.metric(t["setup"], f"₹{q.setup:,}"); m2.metric(t["contract"], f"{q.contract} {t['months']}"); m3.metric(t["valid"], q.valid_until.strftime("%d %b %Y"))
     m4, m5 = st.columns(2)
@@ -104,13 +108,30 @@ with lines_box:
         st.markdown(f"**{l.name}**" + (f" × {l.qty}" if l.qty > 1 else "") + f" · ₹{l.monthly:,}  \n{cat[l.product_id].description}")
         why = why_text(rec, l.product_id, lang) if not use_alt and l.product_id in rec.items else ""
         if why: st.caption(W("Why: ", "क्यों: ") + why)
+        peers = insights.peer_share(segment, l.product_id)
+        if peers and peers["share"] >= 0.05:  # only for what's already in the plan: social proof, never an upsell
+            st.caption(W(f"{peers['share']:.0%} of {peers['n']} past {segment.lower()} customers had this.", f"{segment} के {peers['n']} पुराने ग्राहकों में से {peers['share']:.0%} के पास यह था।"))
         if l.unit in ADJUSTABLE_UNITS:
             st.number_input(UNIT[l.unit], 1, MAX_QTY, l.qty, key=f"qty_{l.product_id}")
         if len(q.lines) > 1 and l.product_id in base and st.button(W(f"Remove {l.name}", f"{l.name} हटाएँ"), key=f"rm_{l.product_id}"):
             st.session_state.removed_lines.append(l.product_id); st.rerun()
 
 with st.expander(W("Compare with your current bill", "अपने मौजूदा बिल से तुलना करें")):
-    now = st.number_input(W("What do you pay per month now for phone and internet? (₹)", "अभी फ़ोन और इंटरनेट पर हर महीने कितना देते हैं? (₹)"), 0, 10000000, 0, step=100, key="current_bill")  # never stored
+    snap = st.file_uploader(W("Snap your current phone or internet bill (optional)", "अपने मौजूदा फ़ोन या इंटरनेट बिल की फ़ोटो लें (वैकल्पिक)"), type=["png", "jpg", "jpeg"], key="bill_photo",
+                            help=W("Read on our server and thrown away. Only the amount is used, and you can change it.", "हमारे सर्वर पर पढ़कर हटा दी जाती है। केवल राशि का उपयोग होता है, और आप उसे बदल सकते हैं।"))
+    if snap is not None and st.session_state.get("bill_read") != snap.file_id:
+        from core.billscan import read_bill
+        from core.kyc.pipeline import open_upload
+        pages, why = open_upload(snap)
+        amount = read_bill(pages[0]) if pages else None
+        pages.clear()
+        st.session_state.bill_read, st.session_state.bill_found = snap.file_id, amount
+        if amount: st.session_state.current_bill = amount
+    if snap is not None:
+        found = st.session_state.get("bill_found")
+        (st.success if found else st.warning)(W(f"We read ₹{found:,} as the amount due. Please check it below." if found else "We couldn't find the amount due on that photo. Please type it below.", f"हमने देय राशि ₹{found:,} पढ़ी। कृपया नीचे जाँच लें।" if found else "इस फ़ोटो पर देय राशि नहीं मिली। कृपया नीचे लिखें।"))
+    st.session_state.setdefault("current_bill", 0)
+    now = st.number_input(W("What do you pay per month now for phone and internet? (₹)", "अभी फ़ोन और इंटरनेट पर हर महीने कितना देते हैं? (₹)"), 0, 10000000, step=100, key="current_bill")  # never stored
     if now:
         gap = q.monthly - now
         st.write(W(f"This plan is ₹{abs(gap):,} a month {'more' if gap > 0 else 'less'} than what you pay now." if gap else "This plan costs the same as what you pay now.", f"यह प्लान आपके मौजूदा बिल से हर महीने ₹{abs(gap):,} {'ज़्यादा' if gap > 0 else 'कम'} है।" if gap else "यह प्लान आपके मौजूदा बिल के बराबर है।"))
@@ -125,6 +146,8 @@ if paid and not already: st.caption(W("Your paid order stays as it is. Accepting
 if st.button(W("Accept as a new order", "नए ऑर्डर के रूप में स्वीकार करें") if paid and not already else t["accept"], type="primary", use_container_width=True, disabled=already):
     if not (oid and orders.update_quote(oid, res["items"], q)):  # changed the plan before payment: same order, not a second one
         st.session_state.order_id = oid = orders.create(c.user(), res["items"], q)
+    orders.set_meta(oid, segment, prof.has_gstin)
+    c.event("quote_accepted", variant=c.variant())
     last = consent.latest_kyc(c.user())
     if last and last["verdict"] == "verified" and orders.get(oid)["stage"] == "Quote accepted":  # KYC done first must not strand the order
         orders.advance(oid, "KYC verified")

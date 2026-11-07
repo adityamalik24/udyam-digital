@@ -62,14 +62,22 @@ pytest -q
 python tests/run_scenarios.py
 python tests/run_scenarios.py tests/advisor_teammate.yaml
 python tests/kyc_stress.py        # slow: degraded uploads and forgeries
+# CI (.github/workflows/tests.yml) runs pytest and all four scenario sets on every push, with no API key
 python tests/live_check.py 8      # spends free Gemini quota
+uvicorn web.server:app --port 8000  # the web front end
+docker build -t udyam-web . && docker run --memory=512m --cpus=0.1 -p 8000:10000 -e LLM_API_KEY=... udyam-web  # small-server limits
 ```
 
+## Front ends
+- `app/` (Streamlit, deployed on Streamlit Cloud) and `web/` (FastAPI + plain JS, run locally; `Dockerfile` packages it) share `core/`. A change to a page's behaviour belongs in both, or in `core/`.
+- `web/` never takes a price, verdict or order total from the browser: it takes choices and recomputes. Every order action checks the order belongs to the session.
+- Voice input (`core/asr.py`) only writes words into the chat box. It needs its own consent (audio can't be redacted before it goes to Gemini), keeps no recording, redacts the transcript and never sends a message by itself.
+
 ## Out of scope
-WhatsApp, voice, a full back-office (the read-only Partner queue is in scope), real DigiLocker / e-sign / payment gateway, React frontend, auth beyond a demo user.
+WhatsApp, phone calls or voice replies, a full back-office (the read-only Partner queue is in scope), real DigiLocker / e-sign / payment gateway, React frontend, auth beyond a demo user.
 
 ## Working style
 - Read `data/README.md` and the CSV header before writing data code.
 - Update tests with every change to `rules.py`, `pricing.py` or `kyc/`. Add a scenario for every advisor bug.
-- Keep `core/` small and pure; Streamlit pages only handle UI.
+- Keep `core/` small and pure; Streamlit pages (`app/`) and the web front end (`web/`) only handle UI and permission checks.
 - Run `pytest -q` and `python tests/run_scenarios.py` before saying a task is done.

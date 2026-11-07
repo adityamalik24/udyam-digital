@@ -2,7 +2,7 @@ import sys, json, time; from pathlib import Path; sys.path.insert(0, str(Path(__
 import common as c
 import streamlit as st
 from core import consent, orders
-from core.kyc import messages as KM
+from core.kyc import forensics, messages as KM
 from core.kyc.pipeline import FILES, MAX_PAGES, MAX_UPLOAD_MB, OcrUnavailable, load_specimen, look_up_gstin, look_up_udyam, open_upload, verify_files, verify_images
 t = c.setup("KYC")
 c.journey("kyc", t)
@@ -46,7 +46,7 @@ if "udyam" in found:
     else: st.warning(W("That doesn't look like a Udyam number. It should look like UDYAM-MH-00-1234567.", "यह Udyam नंबर नहीं लगता। यह UDYAM-MH-00-1234567 जैसा होना चाहिए।"))
 
 mode = st.radio(t["docs"], ["specimen", "upload"], format_func=lambda m: t[m], horizontal=True)
-images, pages, source, problems = {}, [], None, False
+images, pages, source, problems, signals = {}, [], None, False, []
 if mode == "specimen":
     who = st.selectbox(t["applicant"], [f"K{i:02d}" for i in range(1, 13)])
     images, source = load_specimen(who), who
@@ -61,12 +61,13 @@ else:
     if no_gst_needed: st.info(W("Your plan doesn't need a GSTIN. If you don't have one, your signatory ID and address proof are enough.", "आपके प्लान के लिए GSTIN ज़रूरी नहीं। GSTIN न हो तो हस्ताक्षरकर्ता की ID और पते का प्रमाण काफ़ी है।"))
     nonce = st.session_state.setdefault("upload_nonce", 0)
     files = st.file_uploader(t["docs"], type=["png", "jpg", "jpeg", "pdf"], accept_multiple_files=True, key=f"up_all_{nonce}")
-    WHY = {"too_big": W(f"is larger than we accept ({MAX_UPLOAD_MB} MB). Please send a smaller copy.", f"सीमा ({MAX_UPLOAD_MB} MB) से बड़ी है। कृपया छोटी कॉपी भेजें।"),
+    WHY = {"too_big": W(f"is larger than we accept (over {MAX_UPLOAD_MB} MB, or a very large image). Please send a smaller copy.", f"सीमा से बड़ी है ({MAX_UPLOAD_MB} MB से ज़्यादा, या बहुत बड़ी इमेज)। कृपया छोटी कॉपी भेजें।"),
            "too_many": W(f"has more than {MAX_PAGES} pages. Please send only the pages we need.", f"में {MAX_PAGES} से ज़्यादा पेज हैं। कृपया केवल ज़रूरी पेज भेजें।"),
            "bad_file": W("can't be opened. It may be damaged, password-protected or not a real image or PDF. Please choose another.", "खुल नहीं रही। हो सकता है यह ख़राब हो, पासवर्ड से सुरक्षित हो, या असली इमेज या PDF न हो। कृपया दूसरी चुनें।")}
     for f in files:
         got, why = open_upload(f)  # held in memory only, never written to disk
         pages += got
+        if got: signals += forensics.signals(f.getvalue())  # for a reviewer only: never changes the verdict
         if why:
             problems = True
             st.error(W(f"{f.name} ", f"{f.name} ") + WHY[why])
@@ -88,7 +89,9 @@ if st.button(t["verify"], type="primary", use_container_width=True, disabled=not
         st.stop()
     bar.empty(); images.clear(); pages.clear()
     st.session_state.pop("lookup", None)  # the result below replaces it, and an old "go ahead" must not sit above a different verdict
+    if signals: r.fields["signals"] = signals
     consent.save_kyc(c.user(), r.verdict, r.reason, json.dumps(r.fields))
+    c.event("kyc_done", code=r.verdict)
     st.session_state.kyc_result = {"verdict": r.verdict, "source": source, "fields": r.fields, "read": r.read, "checks": r.checks, "unused": r.unused, "seconds": round(time.monotonic() - started, 1),
                                    "issues": [(i.severity, i.code, i.params) for i in r.issues]}
     oid = st.session_state.get("order_id")
@@ -97,6 +100,11 @@ if st.button(t["verify"], type="primary", use_container_width=True, disabled=not
     st.session_state.upload_nonce = st.session_state.get("upload_nonce", 0) + 1  # new widget keys drop the uploaded files from the session
     st.rerun()
 
+last_db = consent.latest_kyc(c.user())
+reviewed = json.loads(last_db["fields"] or "{}").get("reviewed") if last_db else False
+if reviewed:  # a person has decided since the automatic check: that decision is the one that counts
+    st.session_state.pop("kyc_result", None)
+    {"verified": st.success, "rejected": st.error}.get(last_db["verdict"], st.info)(W("**A person on our team checked your documents.** Result: ", "**हमारी टीम के एक व्यक्ति ने आपके दस्तावेज़ जाँचे।** परिणाम: ") + t["verdicts"].get(last_db["verdict"], last_db["verdict"]) + ".")
 res = st.session_state.get("kyc_result")
 if res and (consent.latest_kyc(c.user()) is None or "checks" not in res):  # erased when consent was withdrawn, or from before a deploy: never show it
     st.session_state.pop("kyc_result"); res = None
@@ -136,6 +144,6 @@ if last and last["verdict"] == "verified" and not oid:
     st.info(W("Your documents are verified. Accept a quote to continue.", "आपके दस्तावेज़ सत्यापित हैं। आगे बढ़ने के लिए कोटेशन स्वीकार करें।")); c.link("pages/2_Quote.py", label=t["quote"], icon="🧾")
 if oid and last and orders.can_pay(orders.get(oid), last["verdict"]):
     if st.button(f"{t['pay']} · ₹{orders.first_due(orders.get(oid)):,}", use_container_width=True):
-        orders.advance(oid, "Payment done"); st.session_state.paid_notice = True; st.rerun()  # rerun so the progress bar shows it too
+        orders.advance(oid, "Payment done"); st.session_state.paid_notice = True; c.event("paid"); st.rerun()  # rerun so the progress bar shows it too
 if st.session_state.pop("paid_notice", False): st.success(t["paid"])
 c.link("pages/5_Tracker.py", label=t["tracker"], icon="📦")

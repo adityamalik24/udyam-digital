@@ -1,10 +1,10 @@
 """Purpose-specific consent records (DPDP Act 2023). One row per purpose; withdrawal is a timestamp, not a delete."""
 from . import db
 
-NOTICE_VERSION = "v1.3-2026-07"  # change this whenever NOTICE or NOTICE_SHORT changes, so each record shows what the person actually saw
-KYC, UPDATES, CALLBACK = "kyc_verification", "order_updates", "callback_contact"
+NOTICE_VERSION = "v1.4-2026-07"  # change this whenever NOTICE or NOTICE_SHORT changes, so each record shows what the person actually saw
+KYC, UPDATES, CALLBACK, VOICE = "kyc_verification", "order_updates", "callback_contact", "voice_input"
 REQUIRED = {KYC}
-PURPOSE_LABEL = {KYC: {"en": "KYC verification", "hi": "KYC सत्यापन"}, UPDATES: {"en": "Order updates", "hi": "ऑर्डर अपडेट"}, CALLBACK: {"en": "Call-back from our team", "hi": "हमारी टीम से कॉल बैक"}}
+PURPOSE_LABEL = {KYC: {"en": "KYC verification", "hi": "KYC सत्यापन"}, UPDATES: {"en": "Order updates", "hi": "ऑर्डर अपडेट"}, CALLBACK: {"en": "Call-back from our team", "hi": "हमारी टीम से कॉल बैक"}, VOICE: {"en": "Voice input in the chat", "hi": "चैट में आवाज़ से बोलना"}}
 # Shown first. It keeps what DPDP s.5 needs up front: the data, the purpose, how to use your rights and how to complain.
 NOTICE_SHORT = {
  "en": """
@@ -70,7 +70,11 @@ RECEIPT = {
 }
 WITHDRAW_EFFECT = {KYC: {"en": "This deletes your saved KYC result and puts any order on hold.", "hi": "इससे आपका सेव किया KYC परिणाम हट जाएगा और ऑर्डर रुक जाएगा।"},
                    UPDATES: {"en": "You'd stop getting status messages. Nothing else changes.", "hi": "स्टेटस मैसेज बंद हो जाएँगे। और कुछ नहीं बदलेगा।"},
-                   CALLBACK: {"en": "This deletes your call-back details.", "hi": "इससे आपकी कॉल-बैक जानकारी हट जाएगी।"}}
+                   CALLBACK: {"en": "This deletes your call-back details.", "hi": "इससे आपकी कॉल-बैक जानकारी हट जाएगी।"},
+                   VOICE: {"en": "The microphone stops working in the chat. You can still type.", "hi": "चैट में माइक्रोफ़ोन बंद हो जाएगा। आप फिर भी लिख सकते हैं।"}}
+# Audio can't have identifiers removed before it is sent, the way text can, so this is its own choice with its own warning.
+VOICE_NOTICE = {"en": "Your recording goes to Google Gemini, which writes down your words. It may be processed outside India, and Google may use it to improve its products. We don't keep the recording. We can't remove anything from audio before sending it, so please don't say ID, bank or card numbers.",
+                "hi": "आपकी रिकॉर्डिंग Google Gemini को जाती है, जो आपके शब्द लिखता है। यह भारत के बाहर प्रोसेस हो सकती है, और Google इसे अपने उत्पाद सुधारने में उपयोग कर सकता है। हम रिकॉर्डिंग नहीं रखते। भेजने से पहले ऑडियो से कुछ हटाया नहीं जा सकता, इसलिए कृपया ID, बैंक या कार्ड नंबर न बोलें।"}
 LANGUAGE_NAME = {"en": "English", "hi": "हिन्दी"}
 
 
@@ -142,3 +146,24 @@ def latest_kyc(user: str) -> dict | None:
     with db.conn() as c:
         r = c.execute("SELECT verdict,reason,fields,ts FROM kyc WHERE user=? ORDER BY id DESC LIMIT 1", (user,)).fetchone()
     return dict(r) if r else None
+
+
+# What each purpose collects, in the categories a consent receipt lists.
+RECEIPT_PII = {KYC: ["GST certificate", "Udyam certificate", "Signatory ID", "Address proof"], UPDATES: ["Order status"], CALLBACK: ["Name", "Phone number", "Email"], VOICE: ["Voice recording"]}
+THIRD_PARTY = {VOICE: "Google (Gemini API)"}
+
+
+def receipt_json(user: str, language: str) -> dict:
+    """The same records as receipt_text, machine-readable, using the Kantara Consent Receipt v1.1 field names."""
+    import hashlib
+    recs = records(user)
+    stamp = recs[-1]["granted_at"] if recs else db.now()
+    purposes = [{"purpose": PURPOSE_LABEL.get(r["purpose"], {}).get("en", r["purpose"]), "purposeCode": r["purpose"], "purposeCategory": ["Core function" if r["purpose"] in REQUIRED else "Optional"],
+                 "consentType": "EXPLICIT", "piiCategory": RECEIPT_PII.get(r["purpose"], []), "primaryPurpose": r["purpose"] in REQUIRED,
+                 "termination": "Withdrawn " + r["withdrawn_at"] if r["withdrawn_at"] else "Until withdrawn on the consent page or in the tracker",
+                 "thirdPartyDisclosure": r["purpose"] in THIRD_PARTY, "thirdPartyName": THIRD_PARTY.get(r["purpose"]), "noticeVersion": r["notice_version"], "noticeLanguage": r["language"],
+                 "consentTimestamp": r["granted_at"]} for r in recs]
+    return {"version": "KI-CR-v1.1.0", "jurisdiction": "IN", "law": "Digital Personal Data Protection Act, 2023", "consentTimestamp": stamp, "collectionMethod": "Web form, separate unticked box per purpose",
+            "consentReceiptID": hashlib.sha256(f"{user}|{stamp}|{len(recs)}".encode()).hexdigest()[:32], "language": language, "piiPrincipalId": user,
+            "piiControllers": [{"piiController": "Accel Business (fictional demo operator)", "contact": "Grievance officer (placeholder)", "piiControllerUrl": "demo"}],
+            "policyUrl": "Consent page, notice " + NOTICE_VERSION, "services": [{"service": "Udyam Digital business onboarding", "purposes": purposes}], "sensitive": False, "spiCat": []}

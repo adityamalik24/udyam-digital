@@ -19,6 +19,15 @@ if not st.session_state.chat:
     if st.session_state.ui_lang == "hi": s.profile.language = "hi"
 for role, msg in st.session_state.chat:
     with st.chat_message(role): st.markdown(msg)
+if len(st.session_state.chat) > 1 and st.session_state.chat[-1][0] == "assistant":
+    c.read_aloud(st.session_state.chat[-1][1], "सुनें" if st.session_state.ui_lang == "hi" else "Read aloud")
+
+
+def track() -> None:
+    """Funnel steps for the dashboard: a random id and a step name, never what was typed."""
+    c.event("chat_started")
+    if s.rec and s.rec.quote: c.event("plan_shown")
+    if s.handoff: c.event("handoff", code=s.handoff)
 hi_ui = st.session_state.ui_lang == "hi"
 chips = quick_replies(s)
 tapped = st.pills("जल्दी जवाब" if hi_ui else "Quick answers", [label for label, _ in chips], key=f"chip_{len(st.session_state.chat)}", label_visibility="collapsed") if chips else None
@@ -45,7 +54,7 @@ if not (s.rec and s.rec.quote) and not s.handoff:  # for owners who'd rather not
                 else:
                     reply = from_form(s, f_kind, f_city, f_tier or None, int(f_staff), int(f_sites), {"unsure": None, "yes": True, "no": False}[f_gst], f_needs, f_fibre)
                     st.session_state.chat += [("user", say("Filled in the short form", "छोटा फ़ॉर्म भरा")), ("assistant", reply)]
-                    st.rerun()
+                    track(); st.rerun()
 typed = st.chat_input("Type here / यहाँ लिखें")
 if prompt := typed or dict(chips).get(tapped):
     with st.spinner("..."):
@@ -56,7 +65,7 @@ if prompt := typed or dict(chips).get(tapped):
         st.session_state.pop("addons", None)
     else:
         st.session_state.chat += [("user", s.history[-2][1]), ("assistant", reply)]
-    st.rerun()
+    track(); st.rerun()
 from core import llm
 if llm.last_error: st.caption("AI wording is unavailable right now, so replies use standard text. Plans and prices are unaffected.")
 if s.rec and s.rec.quote:

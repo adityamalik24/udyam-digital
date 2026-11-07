@@ -1,7 +1,7 @@
 import sys, json; from pathlib import Path; sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import common as c
 import streamlit as st
-from core import consent, orders
+from core import consent, insights, orders
 from core.catalogue import catalogue
 from core.pricing import TODAY
 t = c.setup("Tracker")
@@ -51,7 +51,7 @@ else:
         st.markdown(W("We'll update this page when activation is done.", "सक्रिय होने पर यह पेज अपडेट हो जाएगा।"))
     if orders.can_pay(o, verdict):
         if st.button(f"{t['pay']} · ₹{orders.first_due(o):,}", type="primary", use_container_width=True):
-            orders.advance(oid, "Payment done"); st.session_state.paid_notice = True; st.rerun()
+            orders.advance(oid, "Payment done"); st.session_state.paid_notice = True; c.event("paid"); st.rerun()
     if o["stage"] == "Quote accepted":
         c.link("pages/4_KYC.py", label=t["kyc"], icon="🪪")
 if st.session_state.pop("paid_notice", False): st.success(t["paid"])
@@ -72,6 +72,10 @@ for s in orders.STAGES:
     if s == "Installed" and s not in done and o["stage_index"] >= 2: when = W("about ", "लगभग ") + day(max(d for _, d in orders.product_dates(o)))
     st.markdown(f"{'✅' if s in done else '⬜'} {names[s]}" + (f" · {when}" if when else ""))
 st.caption(W(f"This demo treats {day(TODAY)} as today.", f"यह डेमो {day(TODAY)} को आज की तारीख मानता है।"))
+past = insights.activation_days(insights.segment_of(st.session_state.advisor.profile.business_type, st.session_state.advisor.profile.locations), st.session_state.advisor.profile.city_tier)
+if past and not activated:  # the old field process, as a yardstick: history, not a promise
+    st.caption(W(f"For comparison: through field sales, businesses like yours took {past['low']}–{past['high']} days from first contact to activation (the middle half of {past['n']} past activations).",
+                 f"तुलना के लिए: फ़ील्ड सेल्स से आप जैसे बिज़नेस को पहले संपर्क से सक्रिय होने में {past['low']}–{past['high']} दिन लगे ({past['n']} पुराने कनेक्शनों का बीच का आधा हिस्सा)।"))
 
 moved = orders.changes(oid)
 for m in moved:
@@ -103,7 +107,8 @@ if not activated:
     with st.expander(t["demo"], expanded=st.session_state.get("demo_open", False)):  # stays open between taps
         st.caption(t["demo_note"])
         if orders.can_advance(o, verdict) and st.button(t["advance"]):
-            orders.advance(oid); st.session_state.demo_open = True; st.rerun()
+            if orders.advance(oid) == "Activated": c.event("activated")
+            st.session_state.demo_open = True; st.rerun()
         if orders.can_pay(o, verdict) and st.button(W("Simulate a failed payment", "असफल भुगतान का डेमो")):
             st.session_state.pay_failed = True; st.session_state.demo_open = True; st.rerun()
         if verdict == "verified" and 3 <= o["stage_index"] < 5 and not orders.delays(oid) and st.button(W("Simulate a fibre delay", "फाइबर में देरी का डेमो")):

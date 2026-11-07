@@ -417,3 +417,31 @@ def test_a_pdf_that_hangs_or_crashes_the_worker_only_fails_that_file(monkeypatch
     assert open_upload(io.BytesIO(b"%PDF-1.4 anything")) == ([], "bad_file")
     monkeypatch.setattr(pipeline.subprocess, "run", lambda *a, **k: sp.CompletedProcess(a, -9, b"", b""))
     assert open_upload(io.BytesIO(b"%PDF-1.4 anything")) == ([], "bad_file")
+
+
+def test_phone_sized_photos_of_a_clean_applicant_still_verify():
+    """A large phone JPEG must not read as blurry just because each pixel is soft (it did at a 3000-pixel cap)."""
+    import io
+    from PIL import Image
+    from core.kyc.pipeline import load_specimen, verify_images
+    big = {}
+    for d, im in load_specimen("K03").items():
+        im = im.convert("RGB").resize((round(im.width * 2.3), round(im.height * 2.3)), Image.LANCZOS)
+        b = io.BytesIO(); im.save(b, "JPEG", quality=88); big[d] = Image.open(io.BytesIO(b.getvalue()))
+    assert verify_images(big).verdict == "verified"
+
+
+def test_huge_photos_open_small_and_huge_pngs_are_refused():
+    import io
+    from PIL import Image
+    from core.kyc import ocr
+    from core.kyc.pipeline import open_image, open_upload
+    big = Image.new("RGB", (5300, 7500), "white"); b = io.BytesIO(); big.save(b, "JPEG", quality=70)
+    opened = open_image(b.getvalue()); opened.load()
+    assert min(opened.size) >= ocr.MAX_SIDE // 2 and max(opened.size) >= ocr.MAX_SIDE and opened.size != (5300, 7500)
+    small = Image.new("RGB", (3000, 4000), "white"); b2 = io.BytesIO(); small.save(b2, "JPEG")
+    assert open_image(b2.getvalue()).size == (3000, 4000)  # a normal phone photo is decoded as it is
+    png = Image.new("L", (5000, 6000), 255); b3 = io.BytesIO(); png.save(b3, "PNG")
+    class F(io.BytesIO):
+        size = 0
+    assert open_upload(F(b3.getvalue())) == ([], "too_big")

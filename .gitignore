@@ -6,3 +6,4 @@ __pycache__/
 .streamlit/secrets.toml
 .DS_Store
 .pytest_cache/
+web/lead_scores.json

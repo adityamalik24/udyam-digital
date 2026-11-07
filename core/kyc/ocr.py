@@ -12,7 +12,7 @@ class OcrUnavailable(Exception):
 
 
 OCR_TIMEOUT = 20      # seconds per Tesseract call, so a junk upload can't hang the page
-MAX_SIDE = 3000       # larger photos are scaled down first; OCR gains nothing above this
+MAX_SIDE = 2000       # larger photos are scaled down first. At 3000, phone-sized photos of clean applicants read as blurry (6 of 12 kept their verdict, 11 of 12 at 2000), and a 12 MP photo needed over 512 MB
 RELIABLE_WIDTH = 1000 # below this, or tilted, a persistent misread is too likely to count as evidence of alteration
 READABLE_FIELDS = 3
 BLUR_FLOOR = 150      # same floor the checks use: a blurred page is not worth turning round
@@ -54,7 +54,7 @@ def sharpness(img: Image.Image) -> float:
 
 def _ink(img: Image.Image) -> Image.Image:
     """Keep dark text and drop the pink diagonal watermark, which has high red."""
-    a = np.asarray(img.convert("RGB"), int)
+    a = np.asarray(img.convert("RGB"))  # 8-bit: the same comparisons as before, at an eighth of the memory (max >= min, so no wrap)
     mask = (a[..., 0] < 150) & (a.max(axis=2) - a.min(axis=2) < 90)
     return Image.fromarray(np.where(mask, 0, 255).astype("uint8"))
 

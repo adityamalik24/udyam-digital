@@ -13,6 +13,28 @@ python tests/run_scenarios.py
 Set `LLM_API_KEY` (free Gemini key) in `.env` to enable LLM extraction and rewording. It can hit free-tier limits, in which case the app falls back to the parser and shows a notice. Without it the advisor is fully functional on its deterministic parser, in English, Hindi and Hinglish.
 Deploy on Streamlit Community Cloud with `app/Home.py` as the entrypoint and the key in app secrets.
 
+## Web front end
+A second front end in `web/`: a FastAPI JSON API over the same `core/`, and a plain-JavaScript mobile site in the style of Team RNG's Next.js build, with voice input. Run it with `uvicorn web.server:app --port 8000`.
+It runs locally only; the submitted app is the Streamlit one. The `Dockerfile` packages it for any Docker host: tested at 512 MB and 0.1 CPU, where it fits in memory but a 4-document KYC check takes 1–2 minutes.
+
+## Team and data features
+| Feature | Where | What it shows |
+|---|---|---|
+| Live dashboard | Partner queue → Live dashboard | The funnel from this app's own events (a random id and a step, never a person), the deck's metrics against their targets, the "keep at zero" guardrails, how AI replies were made, and hand-offs by reason |
+| A/B test | Quote page, read on the dashboard | Half of visitors also see "about ₹N a day" under the monthly price; acceptance is compared with a two-proportion test, and no winner is called below about 100 per variant |
+| Businesses like yours | Quote and Tracker | For lines already in the plan, the share of past customers in the segment who had them (never an upsell), and the old field process's activation time as a yardstick |
+| Maker-checker KYC review | Partner queue → KYC review | One person proposes, a different person confirms, and only then does the owner's result change. Reversed rejections are counted as false rejections |
+| File signals | Partner queue → KYC review | Editing software in a file's metadata, or a PDF changed after it was first saved (signed PDFs excepted). For reviewers only: they never change a verdict |
+| Snap your bill | Quote → Compare with your current bill | Local OCR reads the amount due; the owner sees it and can change it, and the photo is dropped |
+| Read aloud | Advisor | The phone's own voices read the latest reply, in the script it's written in |
+| Routing, churn watchlist, call-first reasons | Partner queue → Leads and routing | Field visits only for site surveys (the data shows they cost several times more per activation elsewhere), paid orders ranked by churn risk from how often the owner had to chase us, and the top reasons plus an opening line for each dropped lead |
+| Payback what-if | Partner queue → Payback what-if | Starts from the deck's figures (micro: ₹20,007 ÷ ₹2,505 ≈ 8 months) and shows the effect of moving sales to phone and app, prices, or churn |
+| Data rights | Your Data page | Download everything as JSON, ask for a correction, or erase; plus a Kantara-format JSON consent receipt and a [breach runbook](docs/breach_runbook.md) |
+| CI | `.github/workflows/tests.yml` | Every push runs all tests and scenario sets with no API key |
+
+## Voice input
+The Advisor's microphone records in the browser, converts to 16 kHz WAV, and sends it to Gemini to be written down in the language and script spoken. The words land in the chat box for the owner to check: nothing is sent by itself, because a misheard number would change the plan. It has its own unticked consent, since audio can't be redacted before it leaves; the recording is never stored, and the transcript is redacted like typed text.
+
 ## Advisor testing
 `python tests/run_scenarios.py [file]` runs a scenario set: `advisor_scenarios.yaml` (regressions), `advisor_dev.yaml` and `advisor_unseen.yaml` (new wording).
 Without the LLM, first-run scores were 7/28 on the dev set and 22/30 on the unseen set, which was written after the first round of fixes. All sets pass now, but they have since been used for fixing, so they no longer measure unseen wording. None of this is the judges' scenario pack.

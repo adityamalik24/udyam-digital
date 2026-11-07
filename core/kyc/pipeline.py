@@ -9,7 +9,7 @@ from ..catalogue import DATA
 from .checks import check_applicant, Result
 from .ocr import OcrUnavailable, extract, parse  # noqa: F401 (pages catch OcrUnavailable from here)
 from .validators import gstin_problem, mask, valid_udyam
-from . import registry
+from . import ocr, registry
 from . import messages as M
 
 FILES = {"gst": "gst_certificate", "udyam": "udyam_certificate", "id": "signatory_id", "bill": "address_proof"}
@@ -42,6 +42,7 @@ def load_specimen(applicant: str) -> dict:
 
 
 MAX_UPLOAD_MB, MAX_PIXELS = 10, 40_000_000  # bigger than any phone photo; a larger file is refused before it is decoded
+MAX_PIXELS_FULL = 25_000_000  # a PNG can't be decoded at a reduced size, so a larger one wouldn't fit in a small server's memory
 MAX_PAGES = 8      # across everything sent at once: 4 documents, with room for a repeat or a back page
 PDF_SECONDS = 25   # a file that takes longer than this to draw is refused
 PDF_DPI = 200      # higher made small print worse in testing: pages are upscaled past what they hold
@@ -64,6 +65,16 @@ def _pdf_pages(data: bytes) -> list[Image.Image]:
     return pages
 
 
+def open_image(data: bytes) -> Image.Image:
+    """Open a photo without holding it whole in memory when it's huge. A big JPEG is decoded at a half, quarter or eighth
+    of its size, never smaller than OCR uses (it is scaled to that size anyway). Raises OverflowError("too_big")."""
+    img = Image.open(io.BytesIO(data))
+    if img.width * img.height > MAX_PIXELS: raise OverflowError("too_big")
+    if img.format == "JPEG": img.draft(None, (ocr.MAX_SIDE, ocr.MAX_SIDE))
+    elif img.width * img.height > MAX_PIXELS_FULL: raise OverflowError("too_big")
+    return img
+
+
 def open_upload(file) -> tuple[list[Image.Image], str | None]:
     """Open an uploaded image or PDF in memory. Returns (pages, None), or ([], why): too_big, too_many, or bad_file for anything
     unreadable, damaged or password-protected. The type comes from the content, never the file name."""
@@ -71,11 +82,9 @@ def open_upload(file) -> tuple[list[Image.Image], str | None]:
     try:
         data = file.read()
         if data[:5] == b"%PDF-": return _pdf_pages(data), None
-        img = Image.open(io.BytesIO(data))
-        if img.width * img.height > MAX_PIXELS: return [], "too_big"
-        return [img.copy()], None
-    except OverflowError:
-        return [], "too_many"
+        return [open_image(data).copy()], None
+    except OverflowError as e:
+        return [], "too_big" if str(e) == "too_big" else "too_many"
     except (OSError, ValueError, SyntaxError, struct.error, Image.DecompressionBombError):
         return [], "bad_file"
 

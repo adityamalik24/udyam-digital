@@ -28,7 +28,7 @@ if not (kyc_ok and updates_ok):
     ready = (kyc_ok or a) and (a or b)
     if not kyc_ok and not a: st.caption(W("Tick KYC verification to continue.", "आगे बढ़ने के लिए KYC सत्यापन पर टिक करें।"))
     if (not kyc_ok or b) and st.button(W("Save consent", "सहमति सहेजें"), type="primary", disabled=not ready, use_container_width=True):  # no dead button once only the optional box is left
-        if a: consent.grant(c.user(), consent.KYC, lang)
+        if a: consent.grant(c.user(), consent.KYC, lang); c.event("consent_given")
         if b: consent.grant(c.user(), consent.UPDATES, lang)
         st.rerun()
 if consent.records(c.user()):

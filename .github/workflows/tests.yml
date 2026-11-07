@@ -1,0 +1,26 @@
+# Runs the whole test suite and every advisor scenario set on each push. No API key: the advisor's
+# deterministic path must pass on its own, so a Gemini outage can never hide a rules regression.
+name: tests
+on:
+  push:
+  pull_request:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: sudo apt-get update && sudo apt-get install -y tesseract-ocr
+      - run: pip install -r requirements.txt
+      - name: Unit and integration tests
+        run: UDYAM_DB=/tmp/test.db python -m pytest -q
+      - name: Advisor scenarios
+        run: |
+          python tests/run_scenarios.py
+          python tests/run_scenarios.py tests/advisor_dev.yaml
+          python tests/run_scenarios.py tests/advisor_unseen.yaml
+          python tests/run_scenarios.py tests/advisor_teammate.yaml

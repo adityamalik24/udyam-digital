@@ -7,7 +7,7 @@ import pytest
 from streamlit.testing.v1 import AppTest
 from core.advisor import State, turn
 
-@pytest.mark.parametrize("page", ["Home.py", "pages/1_Advisor.py", "pages/2_Quote.py", "pages/3_Consent.py", "pages/4_KYC.py", "pages/5_Tracker.py", "pages/6_Partner_Queue.py"])
+@pytest.mark.parametrize("page", ["Home.py", "pages/1_Advisor.py", "pages/2_Quote.py", "pages/3_Consent.py", "pages/4_KYC.py", "pages/5_Tracker.py", "pages/6_Partner_Queue.py", "pages/7_Your_Data.py"])
 def test_pages_render(page):
     at = AppTest.from_file(str(ROOT / "app" / page), default_timeout=30).run()
     assert not at.exception
@@ -125,7 +125,7 @@ def test_callback_form_needs_contact_and_consent_and_masks_in_queue():
     assert not at.exception and at.success
     q = AppTest.from_file(str(ROOT / "app/pages/6_Partner_Queue.py"), default_timeout=60).run()
     assert not q.exception
-    shown = q.dataframe[0].value.astype(str).to_string()
+    shown = " ".join(d.value.astype(str).to_string() for d in q.dataframe)  # every table on the page, not just the first
     assert "9876543210" not in shown and "3210" in shown
     next(b for b in at.button if "Delete" in b.label).click().run()
     assert not at.exception and not at.success
@@ -391,7 +391,7 @@ def test_receipt_button_appears_once_there_is_something_to_prove():
     assert not buttons(_page("3_Consent.py", "n4"))
     consent.grant("n4", consent.KYC, "en")
     for page in ("3_Consent.py", "5_Tracker.py"):
-        got = buttons(_page(page, "n4")); assert len(got) == 1 and got[0].proto.label == "Download consent receipt"
+        got = buttons(_page(page, "n4")); assert [b.proto.label for b in got] == ["Download consent receipt", "Consent receipt for software (JSON)"]
     assert "सहमति रसीद" in buttons(_page("3_Consent.py", "n4", ui_lang="hi"))[0].proto.label
 
 
@@ -778,3 +778,37 @@ def test_every_label_exists_in_both_languages():
     for key, text in U.TALK.items(): assert {"en", "hi", "hinglish"} <= set(text), key
     from core.advisor import TXT, Q
     for key, text in list(TXT.items()) + list(Q.items()): assert "en" in text, key
+
+
+def test_new_features_on_the_pages():
+    """Quote shows the daily figure only in variant B, peer shares for lines in the plan, and the Your data page erases."""
+    from core import consent, events
+    at = AppTest.from_file(str(ROOT / "app/pages/1_Advisor.py"), default_timeout=30).run()
+    at.chat_input[0].set_value("Clinic in Delhi, 6 staff, one location, have GSTIN, want email").run()
+    state = at.session_state["advisor"]
+    for variant, shown in (("A", False), ("B", True)):
+        q = AppTest.from_file(str(ROOT / "app/pages/2_Quote.py"), default_timeout=30)
+        q.session_state["advisor"] = state; q.session_state["ab_variant"] = variant
+        q.run(); assert not q.exception
+        captions = " ".join(x.value for x in q.caption)
+        assert ("a day" in captions) == shown and "past professional offices customers had this" in captions
+    assert sum(s["count"] for s in events.funnel() if s["step"] == "Quote viewed") >= 1
+    d = AppTest.from_file(str(ROOT / "app/pages/7_Your_Data.py"), default_timeout=30)
+    d.session_state["user"] = "demo-erase-ui"
+    consent.grant("demo-erase-ui", consent.KYC, "en")
+    d.run(); assert not d.exception
+    d.checkbox(key="erase_sure").check().run()
+    next(b for b in d.button if b.label == "Erase my data").click().run()
+    assert not d.exception and consent.active("demo-erase-ui") == set() and d.session_state["user"] != "demo-erase-ui"
+
+
+def test_partner_queue_dashboard_renders_with_data():
+    from core import consent, events, orders
+    from core.pricing import price
+    events.log("pq1", "chat_started"); events.log("pq1", "quote_viewed", variant="B")
+    oid = orders.create("demo-pq", {"P04": 1}, price({"P04": 1})); orders.advance(oid, "KYC verified"); orders.advance(oid, "Payment done")
+    consent.grant("demo-pq2", consent.KYC, "en"); consent.save_kyc("demo-pq2", "needs_review", "Blurry", '{"issues": ["blurry_id"], "signals": [{"code": "pdf_resaved", "n": 2}]}')
+    at = AppTest.from_file(str(ROOT / "app/pages/6_Partner_Queue.py"), default_timeout=120).run()
+    assert not at.exception
+    text = " ".join(str(x.value) for x in at.markdown) + " ".join(str(getattr(x, "value", "")) for x in at.caption)
+    assert "Funnel" in text and "Against the deck's targets" in text and "Propose a decision" in text

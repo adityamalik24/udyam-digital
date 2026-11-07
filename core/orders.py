@@ -143,6 +143,31 @@ def changes(oid: int) -> list[dict]:
         return [dict(r) for r in c.execute("SELECT old_date,new_date,ts FROM order_changes WHERE order_id=? ORDER BY id", (oid,))]
 
 
+def set_meta(oid: int, segment: str | None, has_gstin: bool | None) -> None:
+    """The segment and GSTIN status at order time, for the churn watchlist. Nothing that identifies the owner."""
+    with db.conn() as c:
+        c.execute("CREATE TABLE IF NOT EXISTS order_meta(order_id INTEGER PRIMARY KEY, segment TEXT, has_gstin INTEGER)")
+        c.execute("INSERT OR REPLACE INTO order_meta(order_id,segment,has_gstin) VALUES(?,?,?)", (oid, segment, None if has_gstin is None else int(has_gstin)))
+
+
+def watchlist() -> list[dict]:
+    """Paid orders with their churn risk. Calls aren't counted in the app, so the times an owner had to chase us are
+    estimated from delays, reschedules and call-back requests."""
+    from . import insights
+    with db.conn() as c:
+        c.execute("CREATE TABLE IF NOT EXISTS order_meta(order_id INTEGER PRIMARY KEY, segment TEXT, has_gstin INTEGER)")
+        rows = [dict(r) for r in c.execute("SELECT o.id, o.user, m.segment, m.has_gstin FROM orders o LEFT JOIN order_meta m ON m.order_id=o.id ORDER BY o.id DESC")]
+        asks = {r[0] for r in c.execute("SELECT user FROM callbacks")}
+    out = []
+    for r in rows:
+        o = get(r["id"])
+        if o["stage_index"] < 2: continue
+        chases = len(delays(r["id"])) + len(changes(r["id"])) + (r["user"] in asks)
+        risk = insights.churn_risk(r["segment"], None if r["has_gstin"] is None else bool(r["has_gstin"]), chases)
+        out.append({"order": r["id"], "stage": o["stage"], "segment": r["segment"] or "Unknown", "chases": chases, **risk})
+    return sorted(out, key=lambda x: -x["rate"])
+
+
 def for_user(user: str) -> list[int]:
     """This person's orders, newest first."""
     with db.conn() as c:

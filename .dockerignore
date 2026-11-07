@@ -1,0 +1,14 @@
+.env
+.env.*
+.git
+.venv
+.pytest_cache
+**/__pycache__
+*.db
+RNG_Run_it_back
+notebooks
+docs
+tests
+app
+.streamlit
+web/lead_scores.json

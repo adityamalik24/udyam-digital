@@ -1,0 +1,73 @@
+"""One demo identity per browser, held on the server. A price or verdict never comes from the browser: it only sends choices."""
+from __future__ import annotations
+import secrets, threading, time
+from dataclasses import dataclass, field
+from uuid import uuid4
+from core.advisor import State
+
+COOKIE = "udyam_sid"
+IDLE_SECONDS = 6 * 3600
+UPLOAD_SECONDS = 15 * 60       # uploads nobody verified are dropped after this
+MAX_SESSIONS = 1000
+MAX_PENDING_BYTES = 120 * 1024 * 1024  # across everyone, because uploads wait in memory on a small server
+
+
+@dataclass
+class Session:
+    user: str = field(default_factory=lambda: f"demo-{uuid4().hex[:8]}")
+    advisor: State = field(default_factory=State)
+    chat: list = field(default_factory=list)
+    ui_lang: str = "en"
+    synced_lang: str = "en"
+    # Quote choices. The price is worked out again from these on every request.
+    plan_id: tuple | None = None
+    use_alt: bool = False
+    removed: list = field(default_factory=list)
+    addons: set = field(default_factory=set)
+    qty: dict = field(default_factory=dict)
+    gstin_tick: bool = False
+    order_id: int | None = None
+    accepted_items: dict | None = None
+    # KYC. pending holds files in memory only, until they are verified or expire.
+    lookup: dict = field(default_factory=dict)
+    typed_gstin: str | None = None
+    pending: list = field(default_factory=list)
+    pending_since: float = 0.0
+    kyc_job: dict | None = None
+    kyc_result: dict | None = None
+    # One-time notices on the tracker.
+    paid_notice: bool = False
+    pay_failed: bool = False
+    tracker_order: int | None = None
+    voice_times: list = field(default_factory=list)
+    seen: float = field(default_factory=time.time)
+    lock: threading.RLock = field(default_factory=threading.RLock)
+
+
+_sessions: dict[str, Session] = {}
+_guard = threading.Lock()
+
+
+def _sweep(now: float) -> None:
+    for sid, s in list(_sessions.items()):
+        if now - s.seen > IDLE_SECONDS: del _sessions[sid]
+        elif s.pending and now - s.pending_since > UPLOAD_SECONDS: s.pending = []
+    while len(_sessions) >= MAX_SESSIONS:
+        del _sessions[min(_sessions, key=lambda k: _sessions[k].seen)]
+
+
+def get_or_create(sid: str | None) -> tuple[str, Session, bool]:
+    now = time.time()
+    with _guard:
+        _sweep(now)
+        if sid and sid in _sessions:
+            _sessions[sid].seen = now
+            return sid, _sessions[sid], False
+        sid = secrets.token_urlsafe(24)  # a browser's old id isn't reused, so it can't choose its own
+        _sessions[sid] = Session()
+        return sid, _sessions[sid], True
+
+
+def pending_bytes() -> int:
+    with _guard:
+        return sum(len(b) for s in _sessions.values() for b in s.pending)

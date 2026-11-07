@@ -1,0 +1,11 @@
+# What the deployed web app needs at run time. Lead scoring runs once while the image is built, so pandas and scikit-learn stay out.
+fastapi==0.115.14
+uvicorn==0.34.3
+pydantic>=2.7
+rapidfuzz>=3.9
+pytesseract>=0.3.10
+Pillow>=10
+numpy>=1.26
+python-dotenv>=1.0
+google-genai>=1.0
+pypdfium2==5.14.0
