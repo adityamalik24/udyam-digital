@@ -1,6 +1,6 @@
 """The mobile website: a JSON API over core/ plus a static page. Decisions stay in core/; this file checks who may do what."""
 from __future__ import annotations
-import io, json, threading, time
+import hmac, io, json, os, threading, time
 from datetime import date
 from pathlib import Path
 from urllib.parse import unquote
@@ -9,7 +9,8 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, Response
 from fastapi.staticfiles import StaticFiles
 from PIL import Image
-from core import asr, callback, consent, orders, retention
+from core import asr, billscan, callback, consent, contacts, orders, retention, reviews, rights
+from core.kyc import forensics
 from core.advisor import State, from_form, quick_replies, turn
 from core.catalogue import catalogue
 from core.kyc import pipeline as KP
@@ -17,7 +18,7 @@ from core.kyc.pipeline import FILES, MAX_PAGES, MAX_UPLOAD_MB, SPECIMEN_REVIEW, 
 from core.pricing import summary_text
 from core.rules import ADJUSTABLE_UNITS, MAX_QTY, Profile
 from . import views as V
-from .session import COOKIE, MAX_PENDING_BYTES, Session, get_or_create, pending_bytes
+from .session import COOKIE, MAX_PENDING_BYTES, Session, get_or_create, pending_bytes, reset
 
 STATIC = Path(__file__).parent / "static"
 SCORES = Path(__file__).parent / "lead_scores.json"  # scored once while the image is built, so the small server doesn't load scikit-learn
@@ -32,6 +33,15 @@ _decode_slot = threading.Semaphore(1)  # and so is opening a big photo
 _waiting = 0
 _waiting_guard = threading.Lock()
 _selfcheck: dict = {"state": "idle", "done": 0, "rows": []}
+STAFF_PATHS = ("/api/partner/", "/api/view/partner")
+STAFF_TRIES_PER_MINUTE = 10  # wrong passcodes across everyone, so it can't be guessed quickly
+_staff_fails: list = []
+_staff_guard = threading.Lock()
+
+
+def staff_code() -> str:
+    """PARTNER_PASSCODE locks the staff pages. Unset, they stay open, which is only fine on your own computer."""
+    return os.environ.get("PARTNER_PASSCODE", "").strip()
 
 
 @app.middleware("http")
@@ -40,9 +50,11 @@ async def attach_session(request: Request, call_next):
         response = await call_next(request)
     else:
         sid, s, new = get_or_create(request.cookies.get(COOKIE))
-        request.state.s = s
+        request.state.s, request.state.sid = s, sid
         if request.url.path.startswith("/api") and request.method != "GET" and request.headers.get("x-requested-with") != "udyam":
             return JSONResponse({"error": "forbidden"}, 403)  # another site's form can't set this header
+        if staff_code() and request.url.path.startswith(STAFF_PATHS) and not s.staff:
+            return JSONResponse({"error": "staff_only", "problem": "This page is for Accel Business staff. Please enter the staff passcode."}, 401)
         response = await call_next(request)
         if new:
             await run_in_threadpool(retention.run_once)
@@ -91,26 +103,33 @@ def healthz():
 def view(page: str, request: Request):
     s = sess(request)
     if page == "partner": return V.partner(lead_scores(), selfcheck_view())
-    fn = {"home": V.home, "advisor": V.advisor, "quote": V.quote, "consent": V.consent_page, "kyc": V.kyc, "tracker": V.tracker, "data": data_view}.get(page)
+    fn = {"home": V.home, "advisor": V.advisor, "quote": V.quote, "consent": V.consent_page, "kyc": V.kyc, "tracker": V.tracker, "data": V.data_page}.get(page)
     if not fn: raise HTTPException(404)
     with s.lock:
         return fn(s)
 
 
-def data_view(s: Session) -> dict:
-    return {**V.chrome(s), "title": V.say(s)("Your data", "आपका डेटा"), "panel": V.consent_panel(s)}
-
-
 @app.post("/api/language")
 async def language(request: Request):
+    """Switches the whole page, and the advisor's next replies, to English or Hindi. Earlier replies are translated by
+    /api/advisor/translate, which the page calls straight after."""
     s, d = sess(request), await body(request)
     if d.get("lang") not in ("en", "hi"): raise HTTPException(400)
     def work():
         with s.lock:
-            s.ui_lang = d["lang"]
-            s.synced_lang = s.advisor.profile.language if s.advisor.profile.language in ("en", "hi") else s.synced_lang  # the switch wins until the chat changes language
+            s.ui_lang = s.synced_lang = d["lang"]
+            s.advisor.profile.language, s.advisor.reply_lang = d["lang"], None
+            s.switched_before = len(s.chat)
         return {"ok": True}
     return await run_in_threadpool(work)
+
+
+@app.post("/api/advisor/translate")
+def advisor_translate(request: Request):
+    s = sess(request)
+    with s.lock:
+        V.translate_chat(s)
+    return {"ok": True}
 
 
 # ---- Advisor -------------------------------------------------------------------------------------------------------
@@ -126,9 +145,11 @@ async def advisor_message(request: Request):
             reply = turn(a, text.strip()[:2000])
             # Only the redacted form of what the owner typed is kept, so identifiers vanish from the transcript too.
             if getattr(a, "restarted", False):
-                s.chat = [("assistant", reply)]; s.addons = set()
+                s.chat, s.tr, s.switched_before = [{"role": "assistant", "text": reply, "lang": a.reply_lang or a.profile.language}], {}, 0; s.addons = set()
             else:
-                s.chat += [("user", a.history[-2][1]), ("assistant", reply)]
+                V.ensure_welcome(s)
+                V.add_turn(s, a.history[-2][1], reply)
+            V.track_chat(s)
             return V.advisor(s)
     return await run_in_threadpool(work)
 
@@ -137,7 +158,7 @@ async def advisor_message(request: Request):
 def advisor_new(request: Request):
     s = sess(request)
     with s.lock:  # clears the answers and the quote, keeps the language. An accepted order stays in the tracker.
-        s.advisor = State(profile=Profile(language=s.advisor.profile.language)); s.chat = []; s.addons = set()
+        s.advisor = State(profile=Profile(language=s.advisor.profile.language)); s.chat, s.tr, s.switched_before = [], {}, 0; s.addons = set()
         return V.advisor(s)
 
 
@@ -165,8 +186,9 @@ async def advisor_form(request: Request):
             if not city: raise HTTPException(400, "no_city")
             gst = {"unsure": None, "yes": True, "no": False}.get(d.get("gst"))
             reply = from_form(s.advisor, kind, city, number("tier", 0, 3) or None, number("staff", 1, 100000), number("sites", 1, 10000), gst, needs, bool(d.get("fibre")))
-            if not s.chat: V.advisor(s)  # the welcome comes first
-            s.chat += [("user", V.say(s)("Filled in the short form", "छोटा फ़ॉर्म भरा")), ("assistant", reply)]
+            V.ensure_welcome(s)  # the welcome comes first
+            V.add_turn(s, V.say(s)("Filled in the short form", "छोटा फ़ॉर्म भरा"), reply)
+            V.track_chat(s)
             return V.advisor(s)
     return await run_in_threadpool(work)
 
@@ -291,8 +313,21 @@ async def consent_save(request: Request):
             active = consent.active(s.user)
             a, b = d.get("kyc") is True and consent.KYC not in active, d.get("updates") is True and consent.UPDATES not in active
             if not (consent.KYC in active or a) or not (a or b): raise HTTPException(400, "kyc_required")
-            if a: consent.grant(s.user, consent.KYC, s.ui_lang)
+            if a: consent.grant(s.user, consent.KYC, s.ui_lang); V.event(s, "consent_given")
             if b: consent.grant(s.user, consent.UPDATES, s.ui_lang)
+            return V.consent_page(s)
+    return await run_in_threadpool(work)
+
+
+@app.post("/api/contact")
+async def contact_save(request: Request):
+    s, d = sess(request), await body(request)
+    def work():
+        with s.lock:
+            if d.get("agree") is not True and consent.CONTACT not in consent.active(s.user):
+                return JSONResponse({"problem": V.CONTACT_PROBLEM["no_agree"][s.ui_lang == "hi"]}, 400)
+            problem = contacts.save(s.user, str(d.get("name") or ""), str(d.get("phone") or ""), s.ui_lang)
+            if problem: return JSONResponse({"problem": V.CONTACT_PROBLEM[problem][s.ui_lang == "hi"]}, 400)
             return V.consent_page(s)
     return await run_in_threadpool(work)
 
@@ -375,6 +410,7 @@ async def kyc_upload(request: Request):
             if len(s.pending) + len(blobs) > MAX_PAGES: return JSONResponse({"problem": V.upload_problem(s, "too_many", name)}, 400)
             if pending_bytes() + sum(map(len, blobs)) > MAX_PENDING_BYTES: return JSONResponse({"problem": V.upload_problem(s, "busy", name)}, 503)
             s.pending += blobs; s.pending_since = time.time()
+            s.pending_signals += forensics.signals(data)
             return {"pending": len(s.pending)}
     return await run_in_threadpool(work)
 
@@ -382,11 +418,11 @@ async def kyc_upload(request: Request):
 @app.delete("/api/kyc/upload")
 def kyc_upload_clear(request: Request):
     s = sess(request)
-    with s.lock: s.pending = []
+    with s.lock: s.pending, s.pending_signals = [], []
     return {"ok": True}
 
 
-def _run_kyc(s: Session, applicant: str | None, blobs: list[bytes], typed: str | None, gst_optional: bool) -> None:
+def _run_kyc(s: Session, applicant: str | None, blobs: list[bytes], typed: str | None, gst_optional: bool, signals: list | None = None) -> None:
     """Runs apart from the request, so a slow read can't hit a proxy's time limit. The page polls for progress."""
     global _waiting
     job = s.kyc_job
@@ -403,7 +439,9 @@ def _run_kyc(s: Session, applicant: str | None, blobs: list[bytes], typed: str |
         with s.lock:
             if consent.KYC not in consent.active(s.user):  # withdrawn while it was reading: nothing may be saved
                 job["state"] = "done"; return
+            if signals: r.fields["signals"] = signals  # for a reviewer only: never part of the verdict
             consent.save_kyc(s.user, r.verdict, r.reason, json.dumps(r.fields))
+            V.event(s, "kyc_done", code=r.verdict)
             s.lookup = {}  # an old "go ahead" must not sit above a different verdict
             s.kyc_result = {"verdict": r.verdict, "source": applicant or "upload", "fields": r.fields, "read": r.read, "checks": r.checks, "unused": r.unused, "seconds": round(time.monotonic() - started, 1), "issues": [(i.severity, i.code, i.params) for i in r.issues]}
             if r.verdict == "verified" and s.order_id and orders.get(s.order_id)["stage"] == "Quote accepted":
@@ -429,10 +467,10 @@ async def kyc_verify(request: Request):
             with _waiting_guard:
                 if _waiting >= MAX_WAITING: return JSONResponse({"problem": V.say(s)("Many people are verifying right now. Please try again in a minute.", "अभी बहुत लोग सत्यापन कर रहे हैं। कृपया एक मिनट बाद कोशिश करें।")}, 503)
                 _waiting += 1
-            blobs, typed, s.pending = s.pending, s.typed_gstin, []
+            blobs, typed, signals, s.pending, s.pending_signals = s.pending, s.typed_gstin, s.pending_signals, [], []
             s.typed_gstin = None
             s.kyc_job = {"state": "queued", "done": 0, "total": len(FILES) if applicant else len(blobs)}
-            threading.Thread(target=_run_kyc, args=(s, applicant, blobs, None if applicant else typed, not applicant and V.no_gst_needed(s)), daemon=True).start()
+            threading.Thread(target=_run_kyc, args=(s, applicant, blobs, None if applicant else typed, not applicant and V.no_gst_needed(s), None if applicant else signals), daemon=True).start()
             return V.kyc(s)
     return await run_in_threadpool(work)
 
@@ -464,7 +502,8 @@ async def order_pay(request: Request):
         with s.lock:
             o = own_order(s, d.get("order"))
             if not orders.can_pay(o, V.verdict_of(s)): raise HTTPException(409, "cannot_pay")
-            orders.advance(d["order"], "Payment done"); s.paid_notice = True
+            if not contacts.get(s.user): raise HTTPException(409, "no_contact")  # the technician needs a way to reach them
+            orders.advance(d["order"], "Payment done"); s.paid_notice = True; V.event(s, "paid")
         return {"ok": True}
     return await run_in_threadpool(work)
 
@@ -476,7 +515,8 @@ async def order_demo(request: Request):
         with s.lock:
             o, verdict = own_order(s, d.get("order")), V.verdict_of(s)
             action = d.get("action")
-            if action == "advance" and orders.can_advance(o, verdict): orders.advance(d["order"])
+            if action == "advance" and orders.can_advance(o, verdict):
+                if orders.advance(d["order"]) == "Activated": V.event(s, "activated")
             elif action == "fail" and orders.can_pay(o, verdict): s.pay_failed = True
             elif action == "delay" and verdict == "verified" and 3 <= o["stage_index"] < 5 and not orders.delays(d["order"]): orders.mark_delay(d["order"], "fibre")
             else: raise HTTPException(409, "not_now")
@@ -500,7 +540,105 @@ async def order_reschedule(request: Request):
     return await run_in_threadpool(work)
 
 
+# ---- Bill snap, receipts and data rights ------------------------------------------------------------------------------
+@app.post("/api/quote/bill")
+async def quote_bill(request: Request):
+    """A photo of the owner's current bill: local OCR reads the amount due, then the photo is dropped. Nothing is stored."""
+    s = sess(request)
+    try:
+        data = await read_limited(request, MAX_UPLOAD_MB * 1024 * 1024)
+    except HTTPException:
+        return {"amount": None}
+    def work():
+        _has_plan(s)
+        with _decode_slot:
+            pages, why = KP.open_upload(_Upload(data))
+        if not pages: return {"amount": None}
+        with _ocr_slot:
+            return {"amount": billscan.read_bill(pages[0])}
+    return await run_in_threadpool(work)
+
+
+@app.get("/api/consent/receipt.json")
+def consent_receipt_json(request: Request):
+    s = sess(request)
+    return Response(json.dumps(consent.receipt_json(s.user, s.ui_lang), ensure_ascii=False, indent=2).encode("utf-8"), media_type="application/json",
+                    headers={"Content-Disposition": 'attachment; filename="accel_business_consent_receipt.json"'})
+
+
+@app.get("/api/data/export")
+def data_export(request: Request):
+    s = sess(request)
+    return Response(json.dumps(rights.export(s.user), ensure_ascii=False, indent=2).encode("utf-8"), media_type="application/json",
+                    headers={"Content-Disposition": 'attachment; filename="accel_business_my_data.json"'})
+
+
+@app.post("/api/data/correction")
+async def data_correction(request: Request):
+    s, d = sess(request), await body(request)
+    def work():
+        if rights.request_correction(s.user, str(d.get("detail") or "")): raise HTTPException(400, "empty")
+        return {"ok": True}
+    return await run_in_threadpool(work)
+
+
+@app.post("/api/data/erase")
+async def data_erase(request: Request):
+    s, d = sess(request), await body(request)
+    if d.get("sure") is not True: raise HTTPException(400, "not_confirmed")
+    sid = request.state.sid
+    def work():
+        with s.lock:
+            rights.erase(s.user)
+            reset(sid, s.ui_lang)  # nothing of the old session stays: a new identity from here on
+        return {"ok": True}
+    return await run_in_threadpool(work)
+
+
 # ---- Partner queue -------------------------------------------------------------------------------------------------
+@app.post("/api/staff/login")
+async def staff_login(request: Request):
+    s, d = sess(request), await body(request)
+    code = staff_code()
+    if not code: return {"ok": True}
+    now = time.time()
+    with _staff_guard:
+        _staff_fails[:] = [t for t in _staff_fails if now - t < 60]
+        if len(_staff_fails) >= STAFF_TRIES_PER_MINUTE: return JSONResponse({"problem": "Too many wrong tries. Please wait a minute."}, 429)
+        if not hmac.compare_digest(str(d.get("code") or "").strip().encode(), code.encode()):
+            _staff_fails.append(now)
+            return JSONResponse({"problem": "That passcode isn't right."}, 401)
+    with s.lock: s.staff = True
+    return {"ok": True}
+
+
+@app.post("/api/partner/review/propose")
+async def review_propose(request: Request):
+    d = await body(request)
+    def work():
+        try: case = int(d.get("case"))
+        except (TypeError, ValueError): raise HTTPException(400, "bad_case")
+        problem = reviews.propose(case, str(d.get("decision") or ""), str(d.get("note") or ""), str(d.get("maker") or ""))
+        if problem: return JSONResponse({"problem": reviews.PROBLEM[problem]}, 400)
+        return {"ok": True}
+    return await run_in_threadpool(work)
+
+
+@app.post("/api/partner/review/confirm")
+async def review_confirm(request: Request):
+    d = await body(request)
+    def work():
+        if not isinstance(d.get("id"), int): raise HTTPException(400, "bad_id")
+        problem = reviews.confirm(d["id"], str(d.get("checker") or ""), d.get("accept") is True)
+        if problem: return JSONResponse({"problem": reviews.PROBLEM[problem]}, 400)
+        return {"ok": True}
+    return await run_in_threadpool(work)
+
+
+@app.get("/api/partner/whatif")
+def partner_whatif(segment: str = "", share: float = 0, price: float = 0, churn: float = 0):
+    clamp = lambda v, lo, hi: max(lo, min(hi, v))
+    return V.what_if(segment, clamp(share, 0, 1), clamp(price, -0.2, 0.2), clamp(churn, -0.15, 0.1))
 def lead_scores() -> dict:
     global _scores
     if _scores is None:

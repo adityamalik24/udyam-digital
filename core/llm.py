@@ -180,6 +180,20 @@ Style: warm, plain words, no jargon and no sales talk. Short sentences. No greet
 Output only the reply."""
 
 
+TRANSLATE_SYS = """You translate one message from a telecom advisor into {lang}. The owner switched the page's language, so the same message must now read naturally in {lang}.
+
+Rules you must never break:
+- Translate exactly what is there: same meaning, same order, same lists and line breaks. Add nothing, drop nothing, and don't add a greeting or sign-off.
+- Words in double curly braces, such as {{{{VALUE1}}}} or {{{{NAME1}}}}, are slots for numbers and product names. Copy every slot exactly, never translate or invent one, and never write a digit or amount yourself.
+- Keep any ** markers and "- " list markers where they are.
+Output only the translation."""
+
+
+def translate(masked: str, lang: str, c=None, retry: bool = False) -> str | None:
+    """`masked` is an earlier checked reply with slots in place of numbers and product names."""
+    return _call(TRANSLATE_SYS.format(lang=LANGUAGE_NAMES.get(lang, "English")), "MESSAGE:\n" + masked + (RETRY_NOTE if retry else ""), c)
+
+
 def rewrite(masked: str, lang: str, c=None, retry: bool = False) -> str | None:
     """`masked` is checked text with slots in place of numbers and product names. It holds nothing the owner typed."""
     return _call(EXPLAIN_SYS.format(lang=LANGUAGE_NAMES.get(lang, "English")), "MESSAGE:\n" + masked + (RETRY_NOTE if retry else ""), c)

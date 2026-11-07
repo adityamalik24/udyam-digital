@@ -4,6 +4,7 @@ ROOT = pathlib.Path(__file__).parents[1]
 sys.path.insert(0, str(ROOT))
 os.environ["UDYAM_DB"] = os.path.join(tempfile.mkdtemp(), "web.db")
 import pytest
+from PIL import Image
 from fastapi.testclient import TestClient
 from core import asr, consent, llm
 from core.kyc.pipeline import FILES, DATA
@@ -27,6 +28,12 @@ def chat_to_plan(c):
     v = post(c, "/api/advisor/message", {"text": PLAN}).json()
     assert v["has_plan"], v["chat"][-1]
     return v
+
+
+def add_contact(c, name="Ravi Kumar", phone="9876543210"):
+    r = post(c, "/api/contact", {"name": name, "phone": phone, "agree": True})
+    assert r.status_code == 200, r.text
+    return r.json()
 
 
 def wait_for_kyc(c, seconds=180):
@@ -154,7 +161,7 @@ def test_consent_needs_kyc_and_kyc_needs_consent():
 
 def test_specimen_kyc_runs_as_a_job_and_unlocks_payment():
     c = client()
-    chat_to_plan(c); post(c, "/api/quote/accept"); post(c, "/api/consent", {"kyc": True})
+    chat_to_plan(c); post(c, "/api/quote/accept"); post(c, "/api/consent", {"kyc": True}); add_contact(c)
     v = post(c, "/api/kyc/verify", {"mode": "specimen", "applicant": "K02"}).json()
     assert v["job"]["busy"]
     v = wait_for_kyc(c)
@@ -321,12 +328,12 @@ def test_voice_is_off_when_ai_is_off(monkeypatch):
 def test_partner_queue_masks_and_self_check_runs():
     c = client()
     v = c.get("/api/view/partner").json()
-    titles = [s["title"] for s in v["sections"]]
-    assert "Call-back requests" in titles and v["sections"][-1]["rows"]
+    titles = [t["title"] for t in v["leads"]["tables"]]
+    assert "Call-back requests" in titles and v["leads"]["tables"][-1]["rows"]  # dropped leads are always there
     assert post(c, "/api/partner/selfcheck").json()["state"] == "running"
     end = time.time() + 600
     while server._selfcheck["state"] == "running" and time.time() < end: time.sleep(0.5)
-    sc = c.get("/api/view/partner").json()["selfcheck"]
+    sc = c.get("/api/view/partner").json()["review"]["selfcheck"]
     assert sc["summary"] == "12 of 12 match our review." and sc["ok"]
 
 
@@ -361,3 +368,300 @@ def test_a_slow_chat_reply_does_not_freeze_other_visitors(monkeypatch):
         release.set()
         for t in waiting: t.join(15)
         srv.should_exit = True
+
+
+# ---- Ported from the Streamlit app: dashboard, A/B, peers, bill snap, rights, reviews, signals ---------------------------
+def test_funnel_events_and_ab_variant_flow_through(monkeypatch, tmp_path):
+    from core import db, events
+    monkeypatch.setattr(db, "DB_PATH", tmp_path / "web_events.db")
+    c = client()
+    chat_to_plan(c)
+    from web import session as web_session
+    s = web_session._sessions[c.cookies["udyam_sid"]]  # this browser's own session, not just any with a plan
+    q = c.get("/api/view/quote").json()
+    assert (q["per_day"] is not None) == (s.ab == "B")
+    assert any(l["peers"] for l in q["lines"]) and "professional offices customers" in next(l["peers"] for l in q["lines"] if l["peers"])
+    post(c, "/api/quote/accept"); post(c, "/api/consent", {"kyc": True}); add_contact(c)
+    post(c, "/api/kyc/verify", {"mode": "specimen", "applicant": "K02"}); wait_for_kyc(c)
+    t = c.get("/api/view/tracker").json(); post(c, "/api/order/pay", {"order": t["order"]})
+    reached = {x["step"]: x["count"] for x in events.funnel()}
+    assert all(reached[k] == 1 for k in ("Chat started", "Plan shown", "Quote viewed", "Quote accepted", "KYC consent given", "KYC result", "Paid"))
+    assert events.ab_test()["arms"][s.ab]["accepted"] == 1
+    assert t.get("past") and "days from first contact" in t["past"]
+
+
+def test_bill_snap_reads_the_amount_and_needs_a_plan():
+    c = client()
+    bill = (DATA / "kyc_documents" / "K03_address_proof.png").read_bytes()
+    assert c.post("/api/quote/bill", content=bill, headers=H).status_code == 409
+    chat_to_plan(c)
+    assert c.post("/api/quote/bill", content=bill, headers=H).json() == {"amount": 33615}
+    assert c.post("/api/quote/bill", content=b"junk", headers=H).json() == {"amount": None}
+    assert c.post("/api/quote/bill", content=bill).status_code == 403  # the app header is still required
+
+
+def test_json_receipt_export_correction_and_erase():
+    c = client()
+    chat_to_plan(c); post(c, "/api/quote/accept"); post(c, "/api/consent", {"kyc": True, "updates": True})
+    rj = c.get("/api/consent/receipt.json")
+    assert rj.headers["content-type"].startswith("application/json") and rj.json()["jurisdiction"] == "IN"
+    assert c.get("/api/view/data").json()["panel"]["receipt_json"]
+    data = c.get("/api/data/export").json()
+    assert len(data["orders"]) == 1 and len(data["consents"]) == 2
+    assert post(c, "/api/data/correction", {"detail": " "}).status_code == 400
+    assert post(c, "/api/data/correction", {"detail": "City is Pune"}).json()["ok"]
+    assert post(c, "/api/data/erase", {"sure": False}).status_code == 400
+    assert post(c, "/api/data/erase", {"sure": True}).json()["ok"]
+    after = c.get("/api/data/export").json()
+    assert after["orders"] == [] and after["consents"] == [] and after["reference"] != data["reference"]  # a fresh identity
+    assert c.get("/api/view/advisor").json()["chat"][0]["role"] == "assistant" and len(c.get("/api/view/advisor").json()["chat"]) == 1
+
+
+def test_partner_tabs_and_maker_checker_review():
+    owner, staff = client(), client()
+    chat_to_plan(owner); post(owner, "/api/quote/accept"); post(owner, "/api/consent", {"kyc": True}); add_contact(owner)
+    post(owner, "/api/kyc/verify", {"mode": "specimen", "applicant": "K04"})
+    assert wait_for_kyc(owner)["result"]["verdict"] == "needs_review"
+    v = staff.get("/api/view/partner").json()
+    assert [t["key"] for t in v["tabs"]] == ["dash", "review", "leads", "money", "logs"]
+    assert v["dash"]["tables"][1]["title"] == "Against the deck's targets" and v["leads"]["tables"][3]["headers"][-1] == "Send"
+    case = v["review"]["open_cases"][0]
+    assert post(staff, "/api/partner/review/propose", {"case": case, "decision": "verified", "note": "", "maker": "Asha"}).json()["problem"]
+    assert post(staff, "/api/partner/review/propose", {"case": case, "decision": "verified", "note": "Re-checked the GST certificate by hand", "maker": "Asha"}).json()["ok"]
+    rid = staff.get("/api/view/partner").json()["review"]["pending"][0]["id"]
+    assert "different" in post(staff, "/api/partner/review/confirm", {"id": rid, "checker": "ASHA", "accept": True}).json()["problem"]
+    assert post(staff, "/api/partner/review/confirm", {"id": rid, "checker": "Ravi", "accept": True}).json()["ok"]
+    k = owner.get("/api/view/kyc").json()
+    assert k["reviewed"]["tone"] == "success" and k["result"] is None and k["pay"]
+    assert owner.get("/api/view/tracker").json()["pay"]
+
+
+def test_whatif_matches_the_deck_and_clamps_inputs():
+    c = client()
+    base = c.get("/api/partner/whatif", params={"segment": "Micro retail & services"}).json()
+    assert base["metrics"][1]["value"] == "8.0" and base["metrics"][1]["delta"] is None
+    moved = c.get("/api/partner/whatif", params={"segment": "Micro retail & services", "share": 0.5}).json()
+    assert float(moved["metrics"][1]["value"]) < 8 and moved["metrics"][1]["delta"].startswith("-")
+    wild = c.get("/api/partner/whatif", params={"segment": "nonsense", "share": 9, "price": 9, "churn": -9}).json()
+    assert wild["segment"] == "Micro retail & services"
+
+
+def test_upload_signals_reach_the_reviewer_but_not_the_verdict():
+    from PIL import PngImagePlugin
+    c = client()
+    post(c, "/api/consent", {"kyc": True})
+    for key in ("gst", "udyam", "id", "bill"):
+        img = Image.open(DATA / "kyc_documents" / f"K03_{FILES[key]}.png")
+        info = PngImagePlugin.PngInfo()
+        if key == "gst": info.add_text("Software", "Adobe Photoshop")
+        b = io.BytesIO(); img.save(b, "PNG", pnginfo=info)
+        c.post("/api/kyc/upload", content=b.getvalue(), headers=H)
+    post(c, "/api/kyc/verify", {"mode": "upload"})
+    assert wait_for_kyc(c)["result"]["verdict"] == "verified"  # a signal never changes the verdict
+    import json as _json
+    last = consent.latest_kyc(c.get("/api/data/export").json()["reference"])
+    assert _json.loads(last["fields"])["signals"][0]["code"] == "editor_software"
+
+
+def test_specimen_docs_listed_with_names_and_k05_note():
+    c = client(); post(c, "/api/consent", {"kyc": True})
+    v = c.get("/api/view/kyc").json()
+    assert len(v["specimen_docs"]["K05"]) == 3 and len(v["specimen_docs"]["K02"]) == 4 and v["only_these"]
+
+
+# ---- UI changes: AI notice moved, person panel, quote chat, live language switch, new chat --------------------------------
+def test_ai_notice_lives_on_the_data_page_with_its_switch():
+    c = client()
+    v = c.get("/api/view/advisor").json()
+    assert "ai" not in v and v["ai_line"]  # no dropdown in the chat, just a one-line pointer
+    d = c.get("/api/view/data").json()
+    assert d["ai"]["on"] and "Gemini" in d["ai"]["body"]
+    post(c, "/api/advisor/ai", {"on": False})
+    assert not c.get("/api/view/data").json()["ai"]["on"] and c.get("/api/view/advisor").json()["voice"]["ai_off"]
+
+
+def test_talk_to_a_person_is_always_available_and_flags_a_hand_off():
+    c = client()
+    v = c.get("/api/view/advisor").json()
+    assert v["callback"] and not v["callback"]["alert"]
+    v = post(c, "/api/advisor/message", {"text": "this is useless, let me talk to a human"}).json()
+    assert v["callback"]["alert"]
+
+
+def test_quote_page_carries_the_chat_and_a_change_there_updates_the_quote():
+    c = client()
+    chat_to_plan(c)
+    q = c.get("/api/view/quote").json()
+    advisor = c.get("/api/view/advisor").json()
+    assert [m["text"] for m in q["chat"]["messages"]] == [m["text"] for m in advisor["chat"]]
+    names = [l["name"] for l in q["lines"]]
+    assert "Endpoint Security" in names
+    post(c, "/api/advisor/message", {"text": "remove security"})
+    after = c.get("/api/view/quote").json()
+    assert "Endpoint Security" not in [l["name"] for l in after["lines"]] and after["monthly"] < q["monthly"]
+    assert len(after["chat"]["messages"]) == len(q["chat"]["messages"]) + 2
+
+
+def _fake_translation(monkeypatch, result=lambda text, lang: (f"[{lang}] {text}", "ok")):
+    import core.advisor
+    monkeypatch.setattr(server.V, "_can_translate", lambda s: True)
+    monkeypatch.setattr(core.advisor, "translate_reply", result)
+
+
+def test_language_switch_translates_what_was_on_screen(monkeypatch):
+    _fake_translation(monkeypatch)
+    c = client()
+    chat_to_plan(c)
+    before = c.get("/api/view/advisor").json()["chat"]
+    post(c, "/api/language", {"lang": "hi"})
+    v = c.get("/api/view/advisor").json()
+    assert v["lang"] == "hi" and v["translate"] and "नमस्ते" in v["chat"][0]["text"]  # the welcome is redrawn at once
+    assert v["chat"][1]["text"] == before[1]["text"]  # what the owner typed is never changed
+    assert v["chat"][2]["translating"]
+    post(c, "/api/advisor/translate")
+    v = c.get("/api/view/advisor").json()
+    assert not v["translate"] and v["chat"][2]["text"] == "[hi] " + before[2]["text"] and not v["chat"][2]["translating"]
+    assert c.get("/api/view/quote").json()["chat"]["messages"][2]["text"].startswith("[hi] ")
+    reply = post(c, "/api/advisor/message", {"text": "ठीक है"}).json()["chat"][-1]["text"]
+    assert not reply.startswith("[hi]")  # replies after the switch are written in Hindi, not translated
+    post(c, "/api/language", {"lang": "en"})
+    back = c.get("/api/view/advisor").json()
+    assert back["chat"][2]["text"] == before[2]["text"]  # English originals come straight back
+
+
+def test_failed_or_unavailable_translation_keeps_the_original(monkeypatch):
+    _fake_translation(monkeypatch, lambda text, lang: (None, "refused"))
+    c = client(); chat_to_plan(c)
+    post(c, "/api/language", {"lang": "hi"}); post(c, "/api/advisor/translate")
+    v = c.get("/api/view/advisor").json()
+    assert not v["translate"] and v["kept"] and not any(m.get("translating") for m in v["chat"])  # no endless retries
+    monkeypatch.setattr(server.V, "_can_translate", lambda s: False)
+    c2 = client(); chat_to_plan(c2); post(c2, "/api/language", {"lang": "hi"})
+    v2 = c2.get("/api/view/advisor").json()
+    assert not v2["translate"] and v2["kept"]
+
+
+def test_hinglish_written_on_an_english_page_is_not_translated(monkeypatch):
+    _fake_translation(monkeypatch)
+    c = client(); c.get("/api/view/advisor")
+    v = post(c, "/api/advisor/message", {"text": "mera kirana store hai Jaipur mein, 2 log kaam karte hain"}).json()
+    assert v["lang"] == "en" and not v["translate"] and not v["chat"][-1]["text"].startswith("[")
+
+
+def test_new_chat_starts_fresh_from_anywhere():
+    c = client()
+    chat_to_plan(c)
+    assert c.get("/api/view/quote").json()["nav"]["new_chat"]
+    post(c, "/api/advisor/new")
+    v = c.get("/api/view/advisor").json()
+    assert len(v["chat"]) == 1 and not v["has_plan"] and c.get("/api/view/quote").json()["empty"]
+
+
+def test_translate_reply_keeps_every_number_and_name():
+    from core.advisor import translate_reply
+    reply = "- Biz Fibre 100: ₹1,099\n**₹2,671 per month** · setup ₹1,000"
+    class Echo:  # a model that translates words but copies slots, as instructed
+        def __init__(self, out): self.models = type("M", (), {"generate_content": lambda _s, model, contents, config: type("R", (), {"text": out(contents), "function_calls": None})()})()
+    good = translate_reply(reply, "hi", Echo(lambda c: c.split("MESSAGE:\n", 1)[1].split("\n\nYour last")[0].replace("per month", "प्रति माह").replace("setup", "सेटअप")))
+    assert good == ("- Biz Fibre 100: ₹1,099\n**₹2,671 प्रति माह** · सेटअप ₹1,000", "ok")
+    assert translate_reply(reply, "hi", Echo(lambda c: "सब कुछ ₹999 में")) == (None, "refused")  # an invented amount is refused every time, so the original stays
+    assert translate_reply(reply, "hi", Echo(lambda c: None)) == (None, "unavailable")
+
+
+def test_a_busy_model_is_retried_later_not_given_up(monkeypatch):
+    _fake_translation(monkeypatch, lambda text, lang: (None, "unavailable"))
+    c = client(); chat_to_plan(c)
+    post(c, "/api/language", {"lang": "hi"}); post(c, "/api/advisor/translate")
+    v = c.get("/api/view/advisor").json()
+    assert not v["translate"]  # resting: no request loop
+    monkeypatch.setattr(server.V, "RETRY_TRANSLATION_SECONDS", -1)  # a minute later
+    _fake_translation(monkeypatch)
+    assert c.get("/api/view/advisor").json()["translate"]
+    post(c, "/api/advisor/translate")
+    assert c.get("/api/view/advisor").json()["chat"][2]["text"].startswith("[hi] ")
+
+
+
+# ---- Contact step and grouped logs -------------------------------------------------------------------------------------
+def test_contact_details_need_their_own_consent_and_valid_values():
+    c = client()
+    assert post(c, "/api/contact", {"name": "Ravi", "phone": "9876543210"}).status_code == 400  # box not ticked
+    assert "name" in post(c, "/api/contact", {"name": "1", "phone": "9876543210", "agree": True}).json()["problem"]
+    assert "mobile" in post(c, "/api/contact", {"name": "Ravi", "phone": "12345", "agree": True}).json()["problem"]
+    v = add_contact(c, "  Ravi   Kumar ", "+91 98765-43210")
+    assert v["contact"]["saved"] == {"name": "Ravi Kumar", "phone": "9876543210"}
+    assert "service_contact" in [a["purpose"] for a in v["panel"]["active"]]
+    v = post(c, "/api/contact", {"name": "Ravi K", "phone": "9123456780"}).json()  # changing them needs no second tick
+    assert v["contact"]["saved"]["phone"] == "9123456780"
+    assert c.get("/api/view/advisor").json()["callback"]["prefill"] == {"name": "Ravi K", "phone": "9123456780"}
+
+
+def test_payment_waits_for_contact_details():
+    c = client()
+    chat_to_plan(c); post(c, "/api/quote/accept"); post(c, "/api/consent", {"kyc": True})
+    post(c, "/api/kyc/verify", {"mode": "specimen", "applicant": "K02"})
+    k = wait_for_kyc(c)
+    assert k["pay"] is None and k["need_contact"]
+    t = c.get("/api/view/tracker").json()
+    assert not t.get("pay") and t["need_contact"]
+    assert post(c, "/api/order/pay", {"order": t["order"]}).status_code == 409
+    add_contact(c)
+    assert c.get("/api/view/kyc").json()["pay"] and post(c, "/api/order/pay", {"order": t["order"]}).json()["ok"]
+
+
+def test_withdrawing_or_erasing_deletes_contact_details():
+    c = client(); add_contact(c, "Asha", "9111122223")  # a number no other test uses
+    assert c.get("/api/data/export").json()["contact_details"]["phone"] == "9111122223"
+    post(c, "/api/consent/withdraw", {"purpose": consent.CONTACT})
+    assert c.get("/api/view/consent").json()["contact"]["saved"] is None and c.get("/api/data/export").json()["contact_details"] is None
+    add_contact(c, "Asha", "9111122223"); post(c, "/api/data/erase", {"sure": True})
+    from core import db
+    with db.conn() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM contacts WHERE phone='9111122223'").fetchone()[0] == 0
+
+
+def test_logs_are_grouped_by_customer_with_masked_contact():
+    a, b, staff = client(), client(), client()
+    add_contact(a, "Meena Shah", "9000011111"); post(a, "/api/consent", {"kyc": True})
+    post(b, "/api/consent", {"kyc": True})
+    logs = staff.get("/api/view/partner").json()["logs"]
+    ref_a = "…" + a.get("/api/data/export").json()["reference"][-4:]
+    g = next(x for x in logs["groups"] if x["ref"] == ref_a)
+    assert g["who"] == "M… · ••••••1111" and g["count"] == 3
+    assert [x["action"] for x in g["steps"]] == ["Gave consent", "Saved contact details", "Gave consent"]
+    assert "9000011111" not in str(logs) and "Meena" not in str(logs)
+
+
+def test_staff_passcode_locks_partner_pages_only_when_set(monkeypatch):
+    c = client()
+    monkeypatch.delenv("PARTNER_PASSCODE", raising=False)
+    assert c.get("/api/view/partner").status_code == 200  # unset: open, as on a laptop
+    monkeypatch.setenv("PARTNER_PASSCODE", "staff-2026")
+    monkeypatch.setattr(server, "_staff_fails", [])
+    c2 = client()
+    r = c2.get("/api/view/partner")
+    assert r.status_code == 401 and r.json()["error"] == "staff_only"
+    assert c2.get("/api/partner/whatif?segment=micro").status_code == 401
+    assert post(c2, "/api/partner/selfcheck").status_code == 401
+    assert c2.get("/api/view/advisor").status_code == 200  # customer pages are never locked
+    assert post(c2, "/api/staff/login", {"code": "wrong"}).status_code == 401
+    assert c2.get("/api/view/partner").status_code == 401
+    assert post(c2, "/api/staff/login", {"code": "staff-2026"}).status_code == 200
+    assert c2.get("/api/view/partner").status_code == 200
+    assert client().get("/api/view/partner").status_code == 401  # another browser still needs it
+
+
+def test_staff_passcode_limits_wrong_tries(monkeypatch):
+    monkeypatch.setenv("PARTNER_PASSCODE", "staff-2026")
+    monkeypatch.setattr(server, "_staff_fails", [])
+    c = client()
+    for _ in range(server.STAFF_TRIES_PER_MINUTE): assert post(c, "/api/staff/login", {"code": "nope"}).status_code == 401
+    assert post(c, "/api/staff/login", {"code": "staff-2026"}).status_code == 429  # even the right one waits
+
+
+def test_ab_test_can_be_switched_off(monkeypatch):
+    from web import session
+    monkeypatch.setenv("AB_TEST", "off")
+    assert {session.Session().ab for _ in range(40)} == {"A"}
+    monkeypatch.setenv("AB_TEST", "on")
+    assert {session.Session().ab for _ in range(60)} == {"A", "B"}

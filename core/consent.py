@@ -1,10 +1,10 @@
 """Purpose-specific consent records (DPDP Act 2023). One row per purpose; withdrawal is a timestamp, not a delete."""
 from . import db
 
-NOTICE_VERSION = "v1.4-2026-07"  # change this whenever NOTICE or NOTICE_SHORT changes, so each record shows what the person actually saw
-KYC, UPDATES, CALLBACK, VOICE = "kyc_verification", "order_updates", "callback_contact", "voice_input"
+NOTICE_VERSION = "v1.5-2026-07"  # change this whenever NOTICE or NOTICE_SHORT changes, so each record shows what the person actually saw
+KYC, UPDATES, CALLBACK, VOICE, CONTACT = "kyc_verification", "order_updates", "callback_contact", "voice_input", "service_contact"
 REQUIRED = {KYC}
-PURPOSE_LABEL = {KYC: {"en": "KYC verification", "hi": "KYC सत्यापन"}, UPDATES: {"en": "Order updates", "hi": "ऑर्डर अपडेट"}, CALLBACK: {"en": "Call-back from our team", "hi": "हमारी टीम से कॉल बैक"}, VOICE: {"en": "Voice input in the chat", "hi": "चैट में आवाज़ से बोलना"}}
+PURPOSE_LABEL = {KYC: {"en": "KYC verification", "hi": "KYC सत्यापन"}, UPDATES: {"en": "Order updates", "hi": "ऑर्डर अपडेट"}, CALLBACK: {"en": "Call-back from our team", "hi": "हमारी टीम से कॉल बैक"}, VOICE: {"en": "Voice input in the chat", "hi": "चैट में आवाज़ से बोलना"}, CONTACT: {"en": "Contact for installation and order updates", "hi": "इंस्टॉलेशन और ऑर्डर अपडेट के लिए संपर्क"}}
 # Shown first. It keeps what DPDP s.5 needs up front: the data, the purpose, how to use your rights and how to complain.
 NOTICE_SHORT = {
  "en": """
@@ -71,7 +71,8 @@ RECEIPT = {
 WITHDRAW_EFFECT = {KYC: {"en": "This deletes your saved KYC result and puts any order on hold.", "hi": "इससे आपका सेव किया KYC परिणाम हट जाएगा और ऑर्डर रुक जाएगा।"},
                    UPDATES: {"en": "You'd stop getting status messages. Nothing else changes.", "hi": "स्टेटस मैसेज बंद हो जाएँगे। और कुछ नहीं बदलेगा।"},
                    CALLBACK: {"en": "This deletes your call-back details.", "hi": "इससे आपकी कॉल-बैक जानकारी हट जाएगी।"},
-                   VOICE: {"en": "The microphone stops working in the chat. You can still type.", "hi": "चैट में माइक्रोफ़ोन बंद हो जाएगा। आप फिर भी लिख सकते हैं।"}}
+                   VOICE: {"en": "The microphone stops working in the chat. You can still type.", "hi": "चैट में माइक्रोफ़ोन बंद हो जाएगा। आप फिर भी लिख सकते हैं।"},
+                   CONTACT: {"en": "This deletes your name and number. We can't arrange installation until you add them again.", "hi": "इससे आपका नाम और नंबर हट जाएगा। दोबारा जोड़ने तक हम इंस्टॉलेशन तय नहीं कर पाएँगे।"}}
 # Audio can't have identifiers removed before it is sent, the way text can, so this is its own choice with its own warning.
 VOICE_NOTICE = {"en": "Your recording goes to Google Gemini, which writes down your words. It may be processed outside India, and Google may use it to improve its products. We don't keep the recording. We can't remove anything from audio before sending it, so please don't say ID, bank or card numbers.",
                 "hi": "आपकी रिकॉर्डिंग Google Gemini को जाती है, जो आपके शब्द लिखता है। यह भारत के बाहर प्रोसेस हो सकती है, और Google इसे अपने उत्पाद सुधारने में उपयोग कर सकता है। हम रिकॉर्डिंग नहीं रखते। भेजने से पहले ऑडियो से कुछ हटाया नहीं जा सकता, इसलिए कृपया ID, बैंक या कार्ड नंबर न बोलें।"}
@@ -97,6 +98,9 @@ def withdraw(user: str, purpose: str) -> None:
             c.execute("DELETE FROM kyc WHERE user=?", (user,))
         if purpose == CALLBACK:
             c.execute("DELETE FROM callbacks WHERE user=?", (user,))
+        if purpose == CONTACT:
+            c.execute("CREATE TABLE IF NOT EXISTS contacts(user TEXT PRIMARY KEY, name TEXT, phone TEXT, ts TEXT)")
+            c.execute("DELETE FROM contacts WHERE user=?", (user,))
     db.audit(user, "consent_withdrawn", purpose)
 
 
@@ -108,11 +112,12 @@ def records(user: str) -> list[dict]:
 def what_we_hold(user: str) -> dict:
     """Everything stored for this person, so they can see it in one place. Masked values only."""
     from . import callback, orders
+    from . import contacts as _contacts
     import json as _json
     last = latest_kyc(user)
     fields = _json.loads(last["fields"] or "{}") if last else {}
     return {"consents": len(records(user)), "kyc": last["verdict"] if last else None, "gstin": fields.get("gstin_masked"), "id": fields.get("id_masked"),
-            "orders": len(orders.for_user(user)), "callback": callback.has_request(user)}
+            "orders": len(orders.for_user(user)), "callback": callback.has_request(user), "contact": bool(_contacts.get(user))}
 
 
 def receipt_text(user: str, language: str) -> str:
@@ -149,7 +154,7 @@ def latest_kyc(user: str) -> dict | None:
 
 
 # What each purpose collects, in the categories a consent receipt lists.
-RECEIPT_PII = {KYC: ["GST certificate", "Udyam certificate", "Signatory ID", "Address proof"], UPDATES: ["Order status"], CALLBACK: ["Name", "Phone number", "Email"], VOICE: ["Voice recording"]}
+RECEIPT_PII = {KYC: ["GST certificate", "Udyam certificate", "Signatory ID", "Address proof"], UPDATES: ["Order status"], CALLBACK: ["Name", "Phone number", "Email"], VOICE: ["Voice recording"], CONTACT: ["Name", "Mobile number"]}
 THIRD_PARTY = {VOICE: "Google (Gemini API)"}
 
 

@@ -1,6 +1,6 @@
 """One demo identity per browser, held on the server. A price or verdict never comes from the browser: it only sends choices."""
 from __future__ import annotations
-import secrets, threading, time
+import os, random, secrets, threading, time
 from dataclasses import dataclass, field
 from uuid import uuid4
 from core.advisor import State
@@ -12,11 +12,18 @@ MAX_SESSIONS = 1000
 MAX_PENDING_BYTES = 120 * 1024 * 1024  # across everyone, because uploads wait in memory on a small server
 
 
+def pick_variant() -> str:
+    """Quote layout for the A/B test. AB_TEST=off shows everyone layout A, so a demo or a judge sees one screen."""
+    return "A" if os.environ.get("AB_TEST", "on").strip().lower() in ("off", "0", "false", "no") else random.choice(("A", "B"))
+
+
 @dataclass
 class Session:
     user: str = field(default_factory=lambda: f"demo-{uuid4().hex[:8]}")
     advisor: State = field(default_factory=State)
-    chat: list = field(default_factory=list)
+    chat: list = field(default_factory=list)  # {"role", "text", "lang"}; the welcome is {"welcome": True} and drawn in the page's language
+    tr: dict = field(default_factory=dict)       # (message index, language) -> translated text, or None if it couldn't be done
+    switched_before: int = 0                      # messages before this index were on screen when the language was switched
     ui_lang: str = "en"
     synced_lang: str = "en"
     # Quote choices. The price is worked out again from these on every request.
@@ -40,6 +47,10 @@ class Session:
     pay_failed: bool = False
     tracker_order: int | None = None
     voice_times: list = field(default_factory=list)
+    pending_signals: list = field(default_factory=list)  # file-edit signs found at upload, for a reviewer only
+    fid: str = field(default_factory=lambda: uuid4().hex)  # funnel id for the dashboard: random, never the user id
+    ab: str = field(default_factory=pick_variant)  # quote layout for the A/B test
+    staff: bool = False      # entered the staff passcode, when one is set
     seen: float = field(default_factory=time.time)
     lock: threading.RLock = field(default_factory=threading.RLock)
 
@@ -66,6 +77,13 @@ def get_or_create(sid: str | None) -> tuple[str, Session, bool]:
         sid = secrets.token_urlsafe(24)  # a browser's old id isn't reused, so it can't choose its own
         _sessions[sid] = Session()
         return sid, _sessions[sid], True
+
+
+def reset(sid: str, ui_lang: str) -> Session:
+    """A fresh identity after erasure: nothing of the old session stays."""
+    with _guard:
+        _sessions[sid] = Session(ui_lang=ui_lang, synced_lang=ui_lang)
+        return _sessions[sid]
 
 
 def pending_bytes() -> int:

@@ -4,18 +4,27 @@ Mobile-first journey for small businesses: chat with an advisor, get one clear m
 
 ## Run
 ```
-brew install tesseract          # Linux: apt install tesseract-ocr (packages.txt covers Streamlit Cloud)
+brew install tesseract          # Linux: apt install tesseract-ocr
 pip install -r requirements.txt
-streamlit run app/Home.py
+uvicorn web.server:app --port 8000
 pytest -q
 python tests/run_scenarios.py
 ```
-Set `LLM_API_KEY` (free Gemini key) in `.env` to enable LLM extraction and rewording. It can hit free-tier limits, in which case the app falls back to the parser and shows a notice. Without it the advisor is fully functional on its deterministic parser, in English, Hindi and Hinglish.
-Deploy on Streamlit Community Cloud with `app/Home.py` as the entrypoint and the key in app secrets.
+Open http://localhost:8000 on a phone-width window. The staff view (Partner queue) is at http://localhost:8000/partner and isn't linked from the customer pages.
 
-## Web front end
-A second front end in `web/`: a FastAPI JSON API over the same `core/`, and a plain-JavaScript mobile site in the style of Team RNG's Next.js build, with voice input. Run it with `uvicorn web.server:app --port 8000`.
-It runs locally only; the submitted app is the Streamlit one. The `Dockerfile` packages it for any Docker host: tested at 512 MB and 0.1 CPU, where it fits in memory but a 4-document KYC check takes 1–2 minutes.
+Set `LLM_API_KEY` (free Gemini key) in `.env` to enable LLM extraction, rewording, translation and voice input. It can hit free-tier limits, in which case the app falls back to the parser and shows a notice. Without it the advisor is fully functional on its deterministic parser, in English, Hindi and Hinglish; only voice input and translating earlier replies need the key.
+
+| Setting | Default | What it does |
+|---|---|---|
+| `LLM_API_KEY` | unset | Gemini key, as above |
+| `PARTNER_PASSCODE` | unset | Locks `/partner` and its API behind a staff passcode (10 wrong tries a minute at most). Unset, the staff view is open, which is only fine on your own computer |
+| `AB_TEST` | `on` | `off` shows every visitor the same quote layout (A), for a demo or judging |
+| `UDYAM_DB` | `udyam.db` | Where the SQLite file lives. Delete it, with the server stopped, for a clean start |
+
+## Web front end (the main app)
+`web/` is the product: a FastAPI JSON API over `core/`, and a plain-JavaScript mobile site with voice input. The `Dockerfile` packages it for any Docker host: tested at 512 MB and 0.1 CPU, where it fits in memory but a 4-document KYC check takes 1–2 minutes.
+
+The older Streamlit front end (`streamlit run app/Home.py`) runs on the same `core/` and is frozen as of 7 Nov 2026.
 
 ## Team and data features
 | Feature | Where | What it shows |

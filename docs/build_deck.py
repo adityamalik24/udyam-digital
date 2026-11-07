@@ -111,11 +111,12 @@ text(s, .5, 3.6, 8.8, 1, ["Each price is the midpoint of the catalogue range; ac
 
 # 6 Product
 s = slide("A working journey where code, not the LLM, decides")
-for i,(h,b) in enumerate([("Advisor","English, Hindi, Hinglish. At most 6 questions, no upsell"),("Quote","One price, add-on toggles, dependencies added with a note"),("Smart KYC","Consent first. OCR, GSTIN checksum and mock registry checks"),("Tracker","7 stages with timestamps, reschedule, consent withdrawal")]):
+for i,(h,b) in enumerate([("Advisor","English, Hindi, Hinglish, typed or spoken. At most 6 questions, no upsell"),("Quote","One price, recomputed on the server; the chat stays open to change it"),("Smart KYC","Consent first. OCR, checksums, registry checks, file-edit signs"),("Tracker","7 stages with timestamps, reschedule; download or erase your data")]):
     card(s, .5+i*2.23, .9, 2.1, 1.55, h, b, 16, 12)
-text(s, .5, 2.65, 8.8, 2, ["The LLM reads messages and words replies around slots that code fills, so it can't type a price or product name in any language.",
- "Tested on our own cases, not the judges': 238 of 238 advisor scenarios pass in English, Hindi and Hinglish, and no eligibility or price breaks across 303,408 business profiles. All 12 KYC applicants match our manual review (5 verified, 5 needs review, 2 rejected), and 0 of 192 forged certificates verified.",
- "Identifiers are stripped from chat before storage. Document images stay in memory and never reach the LLM."], 13)
+text(s, .5, 2.6, 8.8, 2.1, ["The LLM reads messages and words replies around slots that code fills, so it can't type a price or product name in any language.",
+ "Tested on our own cases, not the judges': 243 of 243 advisor scenarios pass in English, Hindi and Hinglish, and no eligibility or price breaks across 303,408 business profiles. All 12 KYC applicants match our manual review (5 verified, 5 needs review, 2 rejected), and 0 of 192 forged certificates verified.",
+ "For staff: unsure KYC cases need two people to sign off, dropped leads are ranked for a call-back (AUC 0.71 on held-out folds), and a churn watchlist flags orders to check in on.",
+ "Identifiers are stripped from chat before storage. Document images stay in memory and never reach the LLM."], 12)
 
 # 7 Signals
 s = slide("Customers who chase status more churn more")

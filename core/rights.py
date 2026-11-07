@@ -26,7 +26,8 @@ def export(user: str) -> dict:
         o = orders.get(oid)
         order_list.append({"order": oid, "items": json.loads(o["items"]), "monthly_inr": o["monthly"], "setup_inr": o["setup"], "contract_months": o["contract"], "stage": o["stage"],
                            "history": [{"stage": e["stage"], "at": e["ts"]} for e in o["events"]]})
-    return {"generated_at": db.now(), "reference": user, "consents": consent.records(user), "orders": order_list, "kyc_results": kyc, "call_back_requests": cb, "rights_requests": req,
+    from . import contacts
+    return {"generated_at": db.now(), "reference": user, "contact_details": contacts.get(user), "consents": consent.records(user), "orders": order_list, "kyc_results": kyc, "call_back_requests": cb, "rights_requests": req,
             "not_held": ["document images", "voice recordings", "full ID or GSTIN numbers", "the chat transcript (it lives only in your browser session)"]}
 
 
@@ -62,6 +63,8 @@ def erase(user: str) -> dict:
         for oid in gone_orders: c.execute("DELETE FROM order_meta WHERE order_id=?", (oid,))
         c.execute("DELETE FROM kyc WHERE user=?", (user,))
         c.execute("DELETE FROM callbacks WHERE user=?", (user,))
+        c.execute("CREATE TABLE IF NOT EXISTS contacts(user TEXT PRIMARY KEY, name TEXT, phone TEXT, ts TEXT)")
+        c.execute("DELETE FROM contacts WHERE user=?", (user,))
         c.execute("DELETE FROM rights_requests WHERE user=?", (user,))
         c.execute("CREATE TABLE IF NOT EXISTS kyc_reviews(id INTEGER PRIMARY KEY, kyc_id INTEGER, user TEXT, was TEXT, decision TEXT, note TEXT, maker TEXT, checker TEXT, made_at TEXT, checked_at TEXT, outcome TEXT)")
         c.execute("DELETE FROM kyc_reviews WHERE user=? AND outcome IS NULL", (user,))

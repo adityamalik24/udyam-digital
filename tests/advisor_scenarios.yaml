@@ -138,3 +138,8 @@
 - {id: h5, name: "Hindi compare answered", turns: ["मेरा क्लिनिक है", "फाइबर और एयरफाइबर में क्या अंतर है?"], reply_has: "वायरलेस 5G", lang: hi}
 - {id: h6, name: "You decide accepts the suggestion", turns: ["clinic in Delhi", "you decide", "you decide"], need: [internet]}
 - {id: h7, name: "Need at the city question is not a city", turns: ["clinic", "email", "need cctv"], profile: {city: null}, need: [cctv]}
+- {id: i1, name: "Outside India is refused plainly, not given a tier", turns: ["Kirana store in Pakistan, 2 staff, need internet for UPI"], no_rec: true, reply_has: "India only", profile: {city: null, city_tier: null, employees: 2}}
+- {id: i2, name: "Outside India, then an Indian city carries on", turns: ["kirana in Dubai", "Delhi"], profile: {city: Delhi, city_tier: 1}}
+- {id: i3, name: "A foreign place in passing is not the location", turns: ["Restaurant in Delhi, we import spices from China, 5 staff, one outlet, need wifi"], has: [P22], profile: {city_tier: 1}}
+- {id: i4, name: "Hindi: outside India", turns: ["मेरी किराना दुकान पाकिस्तान में है"], no_rec: true, reply_has: "केवल भारत", lang: hi}
+- {id: i5, name: "Tier 3 promises no call it can't make", turns: ["Kirana store in Sitapur, 2 staff, 1 shop, no GST, need internet for UPI"], no_rec: true, handoff: true, reply_has: "Talk to a person", reply_lacks: "specialist to contact you"}

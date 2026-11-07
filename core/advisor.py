@@ -59,6 +59,26 @@ def _find_city(t: str, text: str, awaiting: str | None) -> str | None:
     return min(hits)[2] if hits else None
 
 
+# Places outside India. We say plainly that we can't serve them, instead of asking for a tier and quoting.
+ABROAD = {"pakistan": "Pakistan", "bangladesh": "Bangladesh", "nepal": "Nepal", "sri lanka": "Sri Lanka", "bhutan": "Bhutan", "china": "China", "dubai": "Dubai", "uae": "the UAE",
+          "abu dhabi": "Abu Dhabi", "saudi": "Saudi Arabia", "qatar": "Qatar", "oman": "Oman", "kuwait": "Kuwait", "usa": "the USA", "america": "America", "united states": "the USA",
+          "uk": "the UK", "london": "London", "england": "England", "canada": "Canada", "toronto": "Toronto", "australia": "Australia", "sydney": "Sydney", "singapore": "Singapore",
+          "malaysia": "Malaysia", "karachi": "Karachi", "lahore": "Lahore", "islamabad": "Islamabad", "dhaka": "Dhaka", "kathmandu": "Kathmandu", "colombo": "Colombo", "new york": "New York"}
+HI_ABROAD = {"पाकिस्तान": "Pakistan", "बांग्लादेश": "Bangladesh", "नेपाल": "Nepal", "चीन": "China", "दुबई": "Dubai", "अमेरिका": "America", "लंदन": "London", "कराची": "Karachi", "लाहौर": "Lahore", "ढाका": "Dhaka", "सऊदी": "Saudi Arabia"}
+
+
+def _abroad(t: str, text: str, awaiting: str | None) -> str | None:
+    """A business placed outside India ("kirana in Pakistan"), but not a passing mention ("we import from China")."""
+    bare = awaiting in ("city", "city_tier") and len(t.split()) <= 3
+    for w, name in ABROAD.items():
+        for m in re.finditer(rf"\b{w}\b", t):
+            if bare or re.search(r"\b(in|at|based in|located in)\s+$", t[:m.start()]) or re.match(r"\s*(mein|me)\b", t[m.end():]): return name
+    for w, name in HI_ABROAD.items():
+        i = text.find(w)
+        if i >= 0 and (bare or re.match(r"\s*में", text[i + len(w):])): return w
+    return None
+
+
 # Recognised as places, but with no tier in our data, so the advisor asks instead of guessing.
 UNLISTED = ["kota", "goa", "udaipur", "jodhpur", "ajmer", "gwalior", "jabalpur", "mangalore", "hubli", "tirupati", "shimla", "jammu", "siliguri"]
 BTYPES = [("manufacturer", r"manufactur|factory|textile|garment unit|auto.?parts|plastic|moulding|packaging unit|printing press|furniture(?! (?:shop|store|showroom))|food processing|workshop|फैक्ट्री|कारखाना|टेक्सटाइल|\bmill\b"),
@@ -100,8 +120,9 @@ TXT = {
  "discount": {"en": "I can't offer discounts or change prices: every customer sees the same price.", "hi": "मैं छूट नहीं दे सकता और न ही कीमत बदल सकता हूँ: सभी ग्राहकों के लिए कीमत एक जैसी है।", "hinglish": "Main discount nahi de sakta ya price change nahi kar sakta: sabke liye price same hai."},
  "off_topic": {"en": "I can only help with Accel Business plans.", "hi": "मैं केवल Accel Business प्लान में मदद कर सकता हूँ।", "hinglish": "Main sirf Accel Business plans mein help kar sakta hoon."},
  "pii": {"en": "For your safety, please don't share Aadhaar, PAN or bank numbers in chat. I haven't saved it. You can submit documents securely in the KYC step later.", "hi": "आपकी सुरक्षा के लिए कृपया चैट में आधार, पैन या बैंक नंबर न भेजें। मैंने इसे सेव नहीं किया है। दस्तावेज़ आप बाद में KYC चरण में सुरक्षित रूप से दे सकते हैं।", "hinglish": "Aapki safety ke liye chat mein Aadhaar, PAN ya bank number mat bhejiye. Maine ise save nahi kiya. Documents aap baad mein KYC step mein safely de sakte hain."},
- "handoff": {"en": "I'm sorry this has been difficult. I've saved a summary, so an Accel Business specialist can take it from here without you repeating anything.", "hi": "मुझे खेद है कि आपको परेशानी हुई। मैंने सारांश सेव कर लिया है, Accel Business के विशेषज्ञ यहीं से आगे बढ़ेंगे, आपको कुछ दोहराना नहीं पड़ेगा।", "hinglish": "Sorry, aapko pareshani hui. Maine summary save kar li hai, Accel Business specialist yahin se aage badhenge, aapko kuch repeat nahi karna padega."},
- "tier3": {"en": "Accel Business plans are sold only in Tier 1 and Tier 2 cities right now, so I can't offer a plan at your location, and I won't quote something we can't deliver. I've saved your details for a specialist to contact you if coverage reaches your town.", "hi": "Accel Business प्लान अभी केवल टियर 1 और टियर 2 शहरों में उपलब्ध हैं, इसलिए आपकी लोकेशन पर मैं प्लान नहीं दे सकता। मैंने आपकी जानकारी सेव कर ली है, कवरेज आने पर विशेषज्ञ संपर्क करेंगे।", "hinglish": "Accel Business plans abhi sirf Tier 1 aur Tier 2 cities mein available hain, isliye aapki location par main plan nahi de sakta. Maine aapki details save kar li hain, coverage aane par specialist contact karenge."},
+ "handoff": {"en": "I'm sorry this has been difficult. I've saved a summary, so an Accel Business specialist won't need you to repeat anything. To get a call, leave your name and number with \"Talk to a person\".", "hi": "मुझे खेद है कि आपको परेशानी हुई। मैंने सारांश सेव कर लिया है, इसलिए Accel Business के विशेषज्ञ को आपको कुछ दोहराना नहीं पड़ेगा। कॉल के लिए \"किसी व्यक्ति से बात करें\" में अपना नाम और नंबर छोड़ दें।", "hinglish": "Sorry, aapko pareshani hui. Maine summary save kar li hai, isliye Accel Business specialist ko aapko kuch repeat nahi karna padega. Call ke liye \"Talk to a person\" mein apna naam aur number chhod dijiye."},
+ "tier3": {"en": "Accel Business plans are sold only in Tier 1 and Tier 2 cities right now, so I can't offer a plan at your location, and I won't quote something we can't deliver. I've noted that there's demand in your town. If you'd like a call when coverage reaches you, leave your name and number with \"Talk to a person\".", "hi": "Accel Business प्लान अभी केवल टियर 1 और टियर 2 शहरों में उपलब्ध हैं, इसलिए आपकी लोकेशन पर मैं प्लान नहीं दे सकता। मैंने आपके शहर की माँग दर्ज कर ली है। कवरेज आने पर कॉल चाहिए, तो \"किसी व्यक्ति से बात करें\" में अपना नाम और नंबर छोड़ दें।", "hinglish": "Accel Business plans abhi sirf Tier 1 aur Tier 2 cities mein available hain, isliye aapki location par main plan nahi de sakta. Maine aapke town ki demand note kar li hai. Coverage aane par call chahiye, toh \"Talk to a person\" mein apna naam aur number chhod dijiye."},
+ "abroad": {"en": "Accel Business serves businesses in India only, so I can't offer a plan in {place}. If your business is in India, tell me the city.", "hi": "Accel Business केवल भारत में बिज़नेस को सेवा देता है, इसलिए {place} में मैं प्लान नहीं दे सकता। अगर आपका बिज़नेस भारत में है, तो शहर बताइए।", "hinglish": "Accel Business sirf India mein businesses ko service deta hai, isliye {place} mein main plan nahi de sakta. Agar aapka business India mein hai, toh city bataiye."},
  "rec": {"en": "Here's the smallest plan that covers what you asked for:", "hi": "आपकी ज़रूरत पूरी करने वाला सबसे छोटा प्लान यह है:", "hinglish": "Aapki zaroorat cover karne wala sabse chhota plan yeh hai:"},
  "monthly": {"en": "**₹{m:,} per month** · setup ₹{s:,} · {c}-month minimum contract", "hi": "**₹{m:,} प्रति माह** · सेटअप ₹{s:,} · न्यूनतम {c} महीने का अनुबंध", "hinglish": "**₹{m:,} per month** · setup ₹{s:,} · minimum {c} months ka contract"},
  "alt": {"en": "Cheaper option: {names} at ₹{m:,} per month.", "hi": "सस्ता विकल्प: {names}, ₹{m:,} प्रति माह।", "hinglish": "Sasta option: {names}, ₹{m:,} per month."},
@@ -109,9 +130,9 @@ TXT = {
  "excluded": {"en": "Not included: {x}.", "hi": "शामिल नहीं: {x}।", "hinglish": "Shamil nahi: {x}."},
  "dep": {"en": "{a} is added because {b} needs an internet connection.", "hi": "{a} जोड़ा गया है क्योंकि {b} के लिए इंटरनेट कनेक्शन चाहिए।", "hinglish": "{a} add kiya hai kyunki {b} ke liye internet connection chahiye."},
  "next": {"en": "Open the **Quote** page to review and toggle add-ons. Want to change anything?", "hi": "समीक्षा और ऐड-ऑन के लिए **Quote** पेज खोलें। कुछ बदलना है?", "hinglish": "Review aur add-ons ke liye **Quote** page kholiye. Kuch change karna hai?"},
- "multi": {"en": "Because you have several locations, a specialist can also review site-by-site needs; I've saved a summary for them.", "hi": "आपकी कई लोकेशन हैं, इसलिए विशेषज्ञ हर साइट की ज़रूरत भी देख सकते हैं; मैंने उनके लिए सारांश सेव किया है।", "hinglish": "Aapki kai locations hain, isliye specialist har site ki zaroorat bhi dekh sakte hain; maine unke liye summary save ki hai."},
- "custom": {"en": "Some of this depends on your exact setup, so I've saved a summary for an Accel Business specialist to follow up.", "hi": "इसका कुछ हिस्सा आपके सेटअप पर निर्भर है, इसलिए मैंने विशेषज्ञ के लिए सारांश सेव किया है।", "hinglish": "Iska kuch hissa aapke setup par depend karta hai, isliye maine specialist ke liye summary save ki hai."},
- "none": {"en": "None of our plans fit what you described at your size and registration status, so I've saved a summary for a specialist.", "hi": "आपकी स्थिति के लिए कोई प्लान फिट नहीं बैठता, इसलिए मैंने विशेषज्ञ के लिए सारांश सेव किया है।", "hinglish": "Aapke case mein koi plan fit nahi hota, isliye maine specialist ke liye summary save ki hai."},
+ "multi": {"en": "Because you have several locations, a specialist can also review site-by-site needs; I've saved a summary for them. To hear from them, use \"Talk to a person\".", "hi": "आपकी कई लोकेशन हैं, इसलिए विशेषज्ञ हर साइट की ज़रूरत भी देख सकते हैं; मैंने उनके लिए सारांश सेव किया है। उनसे बात के लिए \"किसी व्यक्ति से बात करें\" इस्तेमाल करें।", "hinglish": "Aapki kai locations hain, isliye specialist har site ki zaroorat bhi dekh sakte hain; maine unke liye summary save ki hai. Unse baat karne ke liye \"Talk to a person\" use kijiye."},
+ "custom": {"en": "Some of this depends on your exact setup, so I've saved a summary for an Accel Business specialist. To hear from them, use \"Talk to a person\".", "hi": "इसका कुछ हिस्सा आपके सेटअप पर निर्भर है, इसलिए मैंने विशेषज्ञ के लिए सारांश सेव किया है। उनसे बात के लिए \"किसी व्यक्ति से बात करें\" इस्तेमाल करें।", "hinglish": "Iska kuch hissa aapke setup par depend karta hai, isliye maine specialist ke liye summary save ki hai. Unse baat karne ke liye \"Talk to a person\" use kijiye."},
+ "none": {"en": "None of our plans fit what you described at your size and registration status, so I've saved a summary for a specialist. To hear from them, use \"Talk to a person\".", "hi": "आपकी स्थिति के लिए कोई प्लान फिट नहीं बैठता, इसलिए मैंने विशेषज्ञ के लिए सारांश सेव किया है। उनसे बात के लिए \"किसी व्यक्ति से बात करें\" इस्तेमाल करें।", "hinglish": "Aapke case mein koi plan fit nahi hota, isliye maine specialist ke liye summary save ki hai. Unse baat karne ke liye \"Talk to a person\" use kijiye."},
  "nocat": {"en": "We don't offer {label} in the Accel Business catalogue.", "hi": "Accel Business कैटलॉग में {label} उपलब्ध नहीं है।", "hinglish": "Accel Business catalogue mein {label} available nahi hai."},
  "near": {"en": " The nearest thing we have is {name}: {desc}.", "hi": " सबसे नज़दीकी विकल्प {name} है।", "hinglish": " Sabse nazdeeki option {name} hai."},
  "promise": {"en": "I can't promise a specific date or anything free. {name} typically takes about {d} days to install; you'll see the real date in the tracker once it's scheduled.", "hi": "मैं कोई तय तारीख या मुफ़्त चीज़ का वादा नहीं कर सकता। {name} लगने में आमतौर पर लगभग {d} दिन लगते हैं; तारीख तय होने पर ट्रैकर में दिखेगी।", "hinglish": "Main koi fixed date ya free cheez ka promise nahi kar sakta. {name} lagne mein usually {d} din lagte hain; date fix hone par tracker mein dikhegi."},
@@ -513,6 +534,20 @@ def _translate(reply: str, code: str) -> str | None:
     return None
 
 
+def translate_reply(reply: str, code: str, client=None) -> tuple[str | None, str]:
+    """An earlier reply in another language, word for word, for a page whose language was switched. Slots keep every
+    number and product name exact; a translation that drops, adds or alters one is refused.
+    Returns (text, "ok"), (None, "refused") when every attempt failed the check, or (None, "unavailable") when the model
+    didn't answer, which is worth trying again later."""
+    masked, slots = G.mask_slots(reply)
+    for retry in (False, True, True):
+        out = llm.translate(masked, code, client, retry)
+        if not out: return None, "unavailable"
+        if not G.check_slots(out, slots): return G.fill_slots(out, slots), "ok"
+        llm.stats["refused"] += 1
+    return None, "refused"
+
+
 def _converse(s: State, text: str, lang: str, client=None) -> str | None:
     """Natural reply to a message nothing else understood. Decides nothing; anything unsafe is dropped."""
     if (client is None and llm.client() is None) or VAGUE.search(text) or len(text.split()) < 3: return None
@@ -803,6 +838,11 @@ def _route(s, text, found, lang, llm_client):
     plan_up = bool(s.rec and s.rec.quote)
     if kind and not (kind == "filler" and s.awaiting == "needs_confirm") and not (plan_up and kind in ("thanks", "filler")):
         return U.TALK[kind][lang] if plan_up else _join(U.TALK[kind][lang], _steer(s))
+    if s.profile.city is None and not _find_city(text.lower(), text, s.awaiting) and (place := _abroad(text.lower(), text, s.awaiting)):
+        _merge(s, {k: v for k, v in extract_profile(text, s.profile, None).items() if k not in ("city", "city_tier")})
+        s.awaiting = "city"
+        if "city" not in s.asked: s.asked.append("city")
+        return _lang_text("abroad", lang, place=place)
     field_asked = "needs" if s.awaiting == "needs_confirm" else s.awaiting
     if field_asked and G.WHY_ASK.search(text):
         return _join(WHY_FIELD[field_asked][{"en": 0, "hi": 1, "hinglish": 2}.get(lang, 0)], Q[field_asked][lang])
