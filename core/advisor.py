@@ -79,6 +79,20 @@ def _abroad(t: str, text: str, awaiting: str | None) -> str | None:
     return None
 
 
+# "A clinic in Delhi and a restaurant in Mumbai": two businesses, which need a plan each, so ask which one first
+# instead of merging them into one wrong profile. Only this explicit shape: one business in several places is multi-site.
+TWO_PLACES = re.compile(r"(?P<a>[a-z]+(?:\s+[a-z]+)?)\s+(?:in|at)\s+(?P<c1>[a-z]+)\b[^.?!]{0,40}?\band\b[^.?!]{0,25}?(?P<b>[a-z]+(?:\s+[a-z]+)?)\s+(?:in|at)\s+(?P<c2>[a-z]+)\b")
+
+
+def _two_businesses(t: str) -> tuple | None:
+    m = TWO_PLACES.search(t)
+    if not m or m["c1"] == m["c2"] or m["c1"] not in CITY_TIER or m["c2"] not in CITY_TIER: return None
+    kind = lambda x: next((n for n, rx in BTYPES if re.search(rx, x)), None)
+    k1, k2 = kind(m["a"]), kind(m["b"])
+    if not k1 or not k2 or k1 == k2: return None
+    return (k1, m["c1"]), (k2, m["c2"])
+
+
 # Recognised as places, but with no tier in our data, so the advisor asks instead of guessing.
 UNLISTED = ["kota", "goa", "udaipur", "jodhpur", "ajmer", "gwalior", "jabalpur", "mangalore", "hubli", "tirupati", "shimla", "jammu", "siliguri"]
 BTYPES = [("manufacturer", r"manufactur|factory|textile|garment unit|auto.?parts|plastic|moulding|packaging unit|printing press|furniture(?! (?:shop|store|showroom))|food processing|workshop|फैक्ट्री|कारखाना|टेक्सटाइल|\bmill\b"),
@@ -122,6 +136,7 @@ TXT = {
  "pii": {"en": "For your safety, please don't share Aadhaar, PAN or bank numbers in chat. I haven't saved it. You can submit documents securely in the KYC step later.", "hi": "आपकी सुरक्षा के लिए कृपया चैट में आधार, पैन या बैंक नंबर न भेजें। मैंने इसे सेव नहीं किया है। दस्तावेज़ आप बाद में KYC चरण में सुरक्षित रूप से दे सकते हैं।", "hinglish": "Aapki safety ke liye chat mein Aadhaar, PAN ya bank number mat bhejiye. Maine ise save nahi kiya. Documents aap baad mein KYC step mein safely de sakte hain."},
  "handoff": {"en": "I'm sorry this has been difficult. I've saved a summary, so an Accel Business specialist won't need you to repeat anything. To get a call, leave your name and number with \"Talk to a person\".", "hi": "मुझे खेद है कि आपको परेशानी हुई। मैंने सारांश सेव कर लिया है, इसलिए Accel Business के विशेषज्ञ को आपको कुछ दोहराना नहीं पड़ेगा। कॉल के लिए \"किसी व्यक्ति से बात करें\" में अपना नाम और नंबर छोड़ दें।", "hinglish": "Sorry, aapko pareshani hui. Maine summary save kar li hai, isliye Accel Business specialist ko aapko kuch repeat nahi karna padega. Call ke liye \"Talk to a person\" mein apna naam aur number chhod dijiye."},
  "tier3": {"en": "Accel Business plans are sold only in Tier 1 and Tier 2 cities right now, so I can't offer a plan at your location, and I won't quote something we can't deliver. I've noted that there's demand in your town. If you'd like a call when coverage reaches you, leave your name and number with \"Talk to a person\".", "hi": "Accel Business प्लान अभी केवल टियर 1 और टियर 2 शहरों में उपलब्ध हैं, इसलिए आपकी लोकेशन पर मैं प्लान नहीं दे सकता। मैंने आपके शहर की माँग दर्ज कर ली है। कवरेज आने पर कॉल चाहिए, तो \"किसी व्यक्ति से बात करें\" में अपना नाम और नंबर छोड़ दें।", "hinglish": "Accel Business plans abhi sirf Tier 1 aur Tier 2 cities mein available hain, isliye aapki location par main plan nahi de sakta. Maine aapke town ki demand note kar li hai. Coverage aane par call chahiye, toh \"Talk to a person\" mein apna naam aur number chhod dijiye."},
+ "two_businesses": {"en": "It sounds like you have two businesses: {a} and {b}. Each needs its own plan, so let's do one at a time. Which one first?", "hi": "लगता है आपके दो बिज़नेस हैं: {a} और {b}। हर एक का अपना प्लान होगा, इसलिए एक-एक करके देखते हैं। पहले कौन-सा?", "hinglish": "Lagta hai aapke do business hain: {a} aur {b}. Har ek ka apna plan hoga, isliye ek-ek karke dekhte hain. Pehle kaunsa?"},
  "abroad": {"en": "Accel Business serves businesses in India only, so I can't offer a plan in {place}. If your business is in India, tell me the city.", "hi": "Accel Business केवल भारत में बिज़नेस को सेवा देता है, इसलिए {place} में मैं प्लान नहीं दे सकता। अगर आपका बिज़नेस भारत में है, तो शहर बताइए।", "hinglish": "Accel Business sirf India mein businesses ko service deta hai, isliye {place} mein main plan nahi de sakta. Agar aapka business India mein hai, toh city bataiye."},
  "rec": {"en": "Here's the smallest plan that covers what you asked for:", "hi": "आपकी ज़रूरत पूरी करने वाला सबसे छोटा प्लान यह है:", "hinglish": "Aapki zaroorat cover karne wala sabse chhota plan yeh hai:"},
  "monthly": {"en": "**₹{m:,} per month** · setup ₹{s:,} · {c}-month minimum contract", "hi": "**₹{m:,} प्रति माह** · सेटअप ₹{s:,} · न्यूनतम {c} महीने का अनुबंध", "hinglish": "**₹{m:,} per month** · setup ₹{s:,} · minimum {c} months ka contract"},
@@ -211,6 +226,8 @@ class State:
 
 
 LINK_WHY = {
+ "dep_link": ("{name} works only on an Accel Business connection", "{name} केवल Accel Business कनेक्शन पर चलता है", "{name} sirf Accel Business connection par chalta hai"),
+ "dep_link_have": ("{name} works only on an Accel Business connection, so this is needed even though you already have internet", "{name} केवल Accel Business कनेक्शन पर चलता है, इसलिए आपके पास इंटरनेट होने पर भी यह ज़रूरी है", "{name} sirf Accel Business connection par chalta hai, isliye aapke paas internet hone par bhi yeh zaroori hai"),
  "fibre_needed": ("{name} only works on wired fibre", "{name} केवल वायर्ड फाइबर पर चलता है", "{name} sirf wired fibre par chalta hai"),
  "closest": ("the fastest connection you can get right now, since Biz Fibre 1G isn't available to you", "आपके लिए उपलब्ध सबसे तेज़ कनेक्शन, क्योंकि Biz Fibre 1G आपके लिए उपलब्ध नहीं है", "aapke liye available sabse fast connection, kyunki Biz Fibre 1G aapke liye available nahi hai"),
  "no_fibre": ("wireless 5G, because fibre doesn't reach your site", "वायरलेस 5G, क्योंकि आपकी जगह फाइबर नहीं पहुँचता", "wireless 5G, kyunki aapki site par fibre nahi pahunchta"),
@@ -293,7 +310,7 @@ def extract_profile(text: str, p: Profile, awaiting: str | None = None) -> dict:
     elif re.search(r"\b(me|main|i) (and|aur) (my|mera|meri) \w+", t) or re.search(r"मैं और मेर[ाी] ", t):
         u["employees"] = 2
     if re.search(r"\b(just me|only me|myself|akela|sirf main)\b|अकेला|सिर्फ मैं", t): u["employees"] = 1
-    m = re.search(NUM + r"\s*(?:outlets?|branch(?:es)?|locations?|sites?|stores?|shops?|offices?|clinics?|restaurants?|units?|salons?|pharmac(?:y|ies)|kiranas?|firms?|centres?|centers?|cafes?|plants?|workshops?|hotels?|dukaan|dukan|factories|ब्रांच|लोकेशन|आउटलेट|दुकानें|दुकान|शाखा)", t)
+    m = re.search(NUM + r"\s*(?:outlets?|branch(?:es)?|locations?|sites?|stores?|shops?|offices?|clinics?|restaurants?|units?|salons?|pharmac(?:y|ies)|kiranas?|firms?|centres?|centers?|cafes?|plants?|workshops?|hotels?|dukaan|dukan|factor(?:y|ies)|ब्रांच|लोकेशन|आउटलेट|दुकानें|दुकान|शाखा)", t)
     if m and num(m.group(1)) is not None: u["locations"] = num(m.group(1))
     elif (m := re.search(NUM + r"\s+[a-z]+\s+(?:outlets?|branch(?:es)?|stores?|shops?|clinics?|restaurants?|showrooms?)\b", t)) and num(m.group(1)) is not None: u["locations"] = num(m.group(1))  # "three bakery outlets"
     if re.search(r"single (shop|location|site|store|office)|only one (shop|location|site|branch)|one branch|ek hi|एक ही|\bek (jagah|location|branch|office|dukan|shop|outlet)\b|एक (जगह|लोकेशन|ब्रांच|दुकान|ऑफ़िस|आउटलेट)", t): u["locations"] = 1
@@ -824,7 +841,8 @@ def _route(s, text, found, lang, llm_client):
         _do_handoff(s, "frustration")
         return _lang_text("handoff", lang)
     if U.COMPETITOR.search(text):
-        return _join(U.TALK["competitor"][lang], _steer(s))
+        rest = _rest_of(s, text, U.COMPETITOR, found, lang, llm_client)  # "Jio is cheaper, but I run a clinic in Delhi": keep the facts
+        return _join(U.TALK["competitor"][lang], rest or _steer(s))
     if G.DISCOUNT.search(text) and not G.PROMISE_ASK.search(text) and (re.search(r"discount|% ?off|छूट|डिस्काउंट", text, re.I) or not re.search(r"\d+\s*(staff|employee|people|log\b)", text, re.I)):
         rest = _rest_of(s, text, G.DISCOUNT, found, lang, llm_client)
         # Beside a plan, the shorter words: the reply check rightly objects to "discount" next to a price.
@@ -838,6 +856,11 @@ def _route(s, text, found, lang, llm_client):
     plan_up = bool(s.rec and s.rec.quote)
     if kind and not (kind == "filler" and s.awaiting == "needs_confirm") and not (plan_up and kind in ("thanks", "filler")):
         return U.TALK[kind][lang] if plan_up else _join(U.TALK[kind][lang], _steer(s))
+    if not (s.rec and s.rec.quote) and (two := _two_businesses(text.lower())):
+        col, hi_city = _col(lang), {**TIER1, **TIER2, **TIER3}
+        name = lambda k, c: f"{U.KIND[k][col]} ({hi_city[c] if lang == 'hi' else c.title()})"
+        s.awaiting = "business_type"
+        return _lang_text("two_businesses", lang, a=name(*two[0]), b=name(*two[1]))
     if s.profile.city is None and not _find_city(text.lower(), text, s.awaiting) and (place := _abroad(text.lower(), text, s.awaiting)):
         _merge(s, {k: v for k, v in extract_profile(text, s.profile, None).items() if k not in ("city", "city_tier")})
         s.awaiting = "city"

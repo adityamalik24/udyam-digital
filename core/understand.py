@@ -26,7 +26,9 @@ _PROBLEM = re.compile(r"keeps? (dropping|failing|going)|\bdrops?\b|dropping|\bsl
 _DECLINE = re.compile(r"rather not|prefer not|won'?t (say|tell|share)|don'?t want to (say|tell|share)|not (telling|sharing)|can'?t (say|share)|nahi bat(ana|aunga|aungi|a sakta)|batana nahi|nahi dena|नहीं बताना|नहीं बताऊँगा|बताना नहीं|नहीं बता सकता", re.I)
 _DECLINE_SIZE, _DECLINE_GST, _DECLINE_CITY = re.compile(r"how (big|many)|size|staff|employees|people|कितने", re.I), re.compile(r"\bgst|जीएसटी", re.I), re.compile(r"\bcity\b|\bwhere\b|location|शहर|कहाँ", re.I)
 _INSIST_GST = re.compile(r"without (a |any |the )?gst|bina gst|gst ke bina|जीएसटी के बिना|बिना जीएसटी|(don'?t|do not) care.{0,30}(rule|gst)", re.I)
-COMPETITOR = re.compile(r"(what|how much) do (your |the |other )?competitors?|competitors? (charge|cost)\b.*\?|cheaper than (theirs|others|them|competitors?)|compare.{0,20}(competitor|airtel|jio|others)|दूसरी कंपनी", re.I)
+COMPETITOR = re.compile(r"(what|how much) do (your |the |other )?competitors?|competitors? (charge|cost)\b.*\?|cheaper than (theirs|others|them|competitors?)|compare.{0,20}(competitor|airtel|jio|others)|दूसरी कंपनी"
+                        r"|\b(jio|airtel|vodafone|bsnl|act fibernet|hathway|excitel|tata play)\b[^.?!]{0,40}\b(cheaper|better|faster|sasta|saste|behtar|सस्ता|सस्ते|बेहतर)"
+                        r"|why should (i|we) (choose|pick|go with|take|buy from) (you|accel)", re.I)
 
 
 def declines(text: str) -> bool:

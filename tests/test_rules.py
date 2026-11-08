@@ -197,3 +197,17 @@ def test_quote_matches_the_raw_csv_independently():
         want = math.floor((int(r["price_min_inr_per_month"]) + int(r["price_max_inr_per_month"])) / 2 + 0.5)
         q = price({pid: 3})
         assert (q.monthly, q.setup, q.contract, q.install_days) == (want * 3, int(r["one_time_setup_inr"]) * 3, int(r["min_contract_months"]), int(r["typical_install_days"]))
+
+
+def test_an_add_on_that_needs_our_link_never_offers_to_remove_it():
+    """Cloud CCTV runs only on an Accel connection (requires_one_of), so the link stays even for an owner with internet
+    from someone else, and the reason says so instead of offering to take it out."""
+    from core.rules import Profile, recommend
+    have = recommend(Profile(business_type="pharmacy", city="Delhi", city_tier=1, employees=3, locations=1, has_gstin=False,
+                             needs=["cctv"], current_setup=["existing_link"]))
+    assert "P23" in have.items and have.link_reason == ("dep_link_have", {"name": "Cloud CCTV"})
+    fresh = recommend(Profile(business_type="pharmacy", city="Delhi", city_tier=1, employees=3, locations=1, has_gstin=False, needs=["cctv"]))
+    assert fresh.link_reason[0] == "dep_link"
+    # An add-on that doesn't need our link keeps the offer to take the connection out.
+    email = recommend(Profile(business_type="clinic", city="Delhi", city_tier=1, employees=6, locations=1, has_gstin=True, needs=["cloud_email"]))
+    assert email.link_reason[0] == "implied"

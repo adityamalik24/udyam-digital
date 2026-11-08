@@ -143,3 +143,11 @@
 - {id: i3, name: "A foreign place in passing is not the location", turns: ["Restaurant in Delhi, we import spices from China, 5 staff, one outlet, need wifi"], has: [P22], profile: {city_tier: 1}}
 - {id: i4, name: "Hindi: outside India", turns: ["मेरी किराना दुकान पाकिस्तान में है"], no_rec: true, reply_has: "केवल भारत", lang: hi}
 - {id: i5, name: "Tier 3 promises no call it can't make", turns: ["Kirana store in Sitapur, 2 staff, 1 shop, no GST, need internet for UPI"], no_rec: true, handoff: true, reply_has: "Talk to a person", reply_lacks: "specialist to contact you"}
+- {id: j1, name: "One factory is one location", turns: ["Small auto parts unit in Ludhiana, 25 staff, one factory, have GST, need leased line"], has: [P05], profile: {locations: 1}}
+- {id: j2, name: "Competitor comparison is answered plainly", turns: ["Jio is cheaper, why should I choose you?"], no_rec: true, reply_has: "other providers' prices"}
+- {id: j3, name: "Competitor remark keeps the facts given with it", turns: ["Jio is cheaper than you, but I run a clinic in Delhi with 6 staff"], reply_has: "other providers' prices", profile: {business_type: clinic, city_tier: 1, employees: 6}}
+- {id: j4, name: "Two businesses are not merged into one", turns: ["I have a clinic in Delhi and a restaurant in Mumbai"], no_rec: true, reply_has: "two businesses", profile: {city: null}}
+- {id: j5, name: "Two businesses after a type was given", turns: ["मेरा क्लिनिक है", "I have a clinic in Delhi and a restaurant in Mumbai"], no_rec: true, reply_has: "two businesses"}
+- {id: j6, name: "Existing internet plus CCTV: no false offer to remove our link", turns: ["pharmacy in delhi, 3 staff, 1 shop, we have jio fiber, need cctv"], has: [P23], reply_has: "even though you already have internet", reply_lacks: "take this out"}
+- {id: j7, name: "Hindi: existing internet plus CCTV", turns: ["फार्मेसी दिल्ली में, 3 लोग, एक दुकान, पहले से इंटरनेट है, सीसीटीवी चाहिए"], has: [P23], reply_has: "इंटरनेट होने पर भी", lang: hi}
+- {id: j8, name: "One clinic in two cities is not two businesses", turns: ["clinic in Delhi and another clinic in Mumbai, 10 staff"], reply_lacks: "two businesses"}

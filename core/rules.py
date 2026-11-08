@@ -138,7 +138,7 @@ def _base_link(prof: Profile, needs: set[str]) -> tuple[str | None, list]:
     return None, exc
 
 
-def _link_reason(link: str, prof: Profile, needs: set[str], asked_for_link: bool, excluded: list) -> tuple | None:
+def _link_reason(link: str, prof: Profile, needs: set[str], asked_for_link: bool, excluded: list, deps: list = ()) -> tuple | None:
     """Why this connection, not another. Only facts the rule actually used."""
     if link in ("P03", "P05", "P06"): return None  # the owner asked for this level of service
     if prof.no_fibre and link == "P04": return ("no_fibre", {})
@@ -147,6 +147,11 @@ def _link_reason(link: str, prof: Profile, needs: set[str], asked_for_link: bool
     if "high_speed" in needs and any(e[0] == "P03" for e in excluded): return ("closest", {"reason_pid": "P03"})
     if prof.link_pref == "5g" and link == "P04": return ("asked_5g", {})
     if prof.link_pref == "fibre": return ("asked_fibre", {})
+    if not asked_for_link and deps:
+        # The add-on runs only on one of our connections (requires_one_of), so it can't be taken out, even for an owner
+        # who already has internet from someone else: never offer to remove it.
+        have = bool(EXISTING_LINK & set(prof.current_setup))
+        return ("dep_link_have" if have else "dep_link", {"name": catalogue()[deps[0]].name})
     if not asked_for_link: return ("implied", {})
     if link == "P02":
         return ("sites", {"n": prof.locations}) if (prof.employees or 1) < 10 else ("staff", {"n": prof.employees})
@@ -190,7 +195,7 @@ def recommend(prof: Profile) -> Recommendation:
         rec.excluded += [e for e in exc if e[0] not in {x[0] for x in rec.excluded}]
         if link:
             items = {link: _qty(link, prof), **items}
-            rec.link_reason = _link_reason(link, prof, needs, bool(wants_link), rec.excluded)
+            rec.link_reason = _link_reason(link, prof, needs, bool(wants_link), rec.excluded, deps)
             rec.why[link] = next((n for n in ("dedicated_bandwidth", "high_speed", "internet_for_upi_pos") if n in needs), "internet")
             if not wants_link and deps:
                 rec.auto_added[link] = deps[0]
