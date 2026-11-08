@@ -115,10 +115,15 @@ text(s, .5, 3.55, 8.8, 1.15, ["Each price is the midpoint of the catalogue range
 s = slide("A working journey where code, not the LLM, decides")
 for i,(h,b) in enumerate([("Advisor","English, Hindi, Hinglish, typed or spoken. At most 6 questions, no upsell"),("Quote","One price, recomputed on the server; the chat stays open to change it"),("Smart KYC","Consent first. OCR, checksums, registry checks, file-edit signs"),("Tracker","7 stages with timestamps, reschedule; download or erase your data")]):
     card(s, .5+i*2.23, .9, 2.1, 1.55, h, b, 16, 12)
-text(s, .5, 2.6, 8.8, 2.1, ["The LLM reads messages and words replies around slots that code fills, so it can't type a price or product name in any language.",
+text(s, .5, 2.6, 6.3, 2.15, ["The LLM reads messages and words replies around slots that code fills, so it can't type a price or product name in any language.",
  "Tested on our own cases, not the judges': 258 of 258 advisor scenarios pass in English, Hindi and Hinglish, and no eligibility or price breaks across 303,408 business profiles. All 12 KYC applicants match our manual review (5 verified, 5 needs review, 2 rejected), and 0 of 192 forged certificates verified.",
  "For staff: unsure KYC cases need two people to sign off, dropped leads are ranked for a call-back (AUC 0.71 on held-out folds), and a churn watchlist flags orders to check in on.",
- "Identifiers are stripped from chat before storage. Document images stay in memory and never reach the LLM."], 12)
+ "Identifiers are stripped from chat before storage. Document images stay in memory and never reach the LLM."], 11)
+# Field test: two owners trying the app (shared with their permission). Same height, side by side, caption below.
+FT = ROOT / "docs" / "field_test"
+s.shapes.add_picture(str(FT / "owner_1.jpg"), I(7.0), I(2.6), height=I(1.85))
+s.shapes.add_picture(str(FT / "owner_2.jpg"), I(7.0 + 1.85 * 1200 / 1600 + .08), I(2.6), height=I(1.85))
+text(s, 7.0, 4.5, 2.3, .4, "Field test with local shop owners, who tried the advisor and quote.", 9, MUTE)
 
 # 7 Signals
 s = slide("Customers who chase status more churn more")
