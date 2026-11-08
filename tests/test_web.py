@@ -423,7 +423,7 @@ def test_partner_tabs_and_maker_checker_review():
     post(owner, "/api/kyc/verify", {"mode": "specimen", "applicant": "K04"})
     assert wait_for_kyc(owner)["result"]["verdict"] == "needs_review"
     v = staff.get("/api/view/partner").json()
-    assert [t["key"] for t in v["tabs"]] == ["dash", "review", "leads", "money", "logs"]
+    assert [t["key"] for t in v["tabs"]] == ["dash", "review", "leads", "money", "logs", "evidence"]
     assert v["dash"]["tables"][1]["title"] == "Against the deck's targets" and v["leads"]["tables"][3]["headers"][-1] == "Send"
     case = v["review"]["open_cases"][0]
     assert post(staff, "/api/partner/review/propose", {"case": case, "decision": "verified", "note": "", "maker": "Asha"}).json()["problem"]
@@ -718,3 +718,87 @@ def test_ai_line_says_what_really_happens(monkeypatch):
     assert c.get("/api/view/advisor").json()["ai_line"].startswith("Replies are written with AI")
     post(c, "/api/advisor/ai", {"on": False})
     assert "You turned AI off" in c.get("/api/view/advisor").json()["ai_line"]
+
+
+def _owner_with_order(phone="9123456780"):
+    a = client(); chat_to_plan(a); assert post(a, "/api/quote/accept").status_code == 200
+    add_contact(a, "Asha Rao", phone)
+    oid = a.get("/api/view/tracker").json()["order"]
+    return a, oid
+
+
+def test_find_my_order_from_another_browser(monkeypatch):
+    monkeypatch.setattr(server, "_finds", [])
+    a, oid = _owner_with_order("9123456780")
+    assert f"Order number {oid}" in a.get("/api/view/tracker").json()["order_no"]
+    b = client()
+    v = b.get("/api/view/tracker").json()
+    assert v["empty"] and v["find"]["title"] == "Find my order"
+    assert post(b, "/api/track/find", {"order": oid, "phone": "9123456789"}).status_code == 404  # wrong mobile
+    assert post(b, "/api/track/find", {"order": "", "phone": "123"}).status_code == 400
+    r = post(b, "/api/track/find", {"order": f"#{oid}", "phone": "+91 91234 56780"}).json()
+    assert r["code_sent"] and r["to"] == "••••••6780" and len(r["demo_code"]) == 6
+    wrong = "000000" if r["demo_code"] != "000000" else "111111"
+    assert "isn't right" in post(b, "/api/track/verify", {"code": wrong}).json()["problem"]
+    assert b.get("/api/view/tracker").json().get("empty")  # nothing opens before the right code
+    assert post(b, "/api/track/verify", {"code": r["demo_code"]}).json()["done"]
+    t = b.get("/api/view/tracker").json()
+    assert t["order"] == oid and not t.get("empty")
+    assert post(b, "/api/track/verify", {"code": r["demo_code"]}).status_code == 400  # a code works once
+
+
+def test_find_my_order_limits_and_consent(monkeypatch):
+    from core import find_order
+    monkeypatch.setattr(server, "_finds", [])
+    a, oid = _owner_with_order("9988776655")
+    b = client()
+    for _ in range(find_order.MAX_FINDS): post(b, "/api/track/find", {"order": oid + 999, "phone": "9988776655"})
+    assert post(b, "/api/track/find", {"order": oid, "phone": "9988776655"}).status_code == 429  # even the right details wait
+    c = client()
+    code = post(c, "/api/track/find", {"order": oid, "phone": "9988776655"}).json()["demo_code"]
+    bad = "000000" if code != "000000" else "111111"
+    for _ in range(find_order.MAX_CODE_TRIES): post(c, "/api/track/verify", {"code": bad})
+    assert post(c, "/api/track/verify", {"code": code}).status_code == 400  # three wrong tries burn the code
+    post(a, "/api/consent/withdraw", {"purpose": consent.CONTACT})
+    assert post(client(), "/api/track/find", {"order": oid, "phone": "9988776655"}).status_code == 404  # contact consent withdrawn: not findable
+
+
+def test_find_order_code_expires():
+    from core import find_order
+    p = find_order.new_code("demo-x", 1, now=1000.0)
+    assert find_order.check(p, p["code"], now=1000.0 + find_order.CODE_SECONDS + 1) == "expired"
+    q = find_order.new_code("demo-x", 1, now=1000.0)
+    assert find_order.check(q, q["code"], now=1001.0) == "ok"
+    assert find_order.check(None, "123456") == "expired"
+
+
+def test_footer_switches_between_customer_and_staff():
+    c = client()
+    assert c.get("/api/view/advisor").json()["nav"]["switch_to"] == "/partner"
+    assert c.get("/api/view/partner").json()["nav"]["switch_to"] == "/advisor"
+
+
+def test_red_team_probes_all_hold(monkeypatch):
+    sys.path.insert(0, str(ROOT / "tests"))
+    import red_team
+    monkeypatch.setattr(server, "_finds", [])
+    monkeypatch.setattr(server, "_staff_fails", [])
+    monkeypatch.delenv("PARTNER_PASSCODE", raising=False)
+    rows = red_team.probes()
+    failed = [r[0] for r in rows if not r[2]]
+    assert len(rows) >= 28 and not failed, failed
+
+
+def test_evidence_tab_reruns_checks_in_a_separate_process(monkeypatch):
+    monkeypatch.setattr(server, "EVIDENCE", [("Security probes (red team)", ["tests/red_team.py"])])
+    monkeypatch.setattr(server, "_evidence", {"state": "idle", "done": 0, "rows": []})
+    c = client()
+    v = c.get("/api/view/partner").json()
+    assert any(t["key"] == "evidence" for t in v["tabs"]) and v["evidence"]["state"] == "idle" and v["evidence"]["kyc"]["title"]
+    assert post(c, "/api/partner/evidence").json()["state"] == "running"
+    end = time.time() + 240
+    while server._evidence["state"] == "running" and time.time() < end: time.sleep(1)
+    e = c.get("/api/view/partner").json()["evidence"]
+    assert e["state"] == "done" and e["ok"] and e["rows"][0][1].startswith("✓ ") and "attack probes held" in e["rows"][0][1], e
+    monkeypatch.setattr(server, "EVIDENCE", [("Missing", ["tests/not_there.py"])])
+    assert c.get("/api/view/partner").json()["evidence"]["unavailable"] and post(c, "/api/partner/evidence").status_code == 409

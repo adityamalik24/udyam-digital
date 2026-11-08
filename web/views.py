@@ -72,7 +72,7 @@ def chrome(s: Session, page: str | None = None) -> dict:
             "nav": {"title": W("Accel Business", "Accel Business"), "data": W("Your data", "आपका डेटा"), "skip": W("Skip to content", "मुख्य भाग पर जाएँ"),
                     "banner": W("Demo. All data is synthetic. Accel Telecom is fictional.", "डेमो। सारा डेटा काल्पनिक है। Accel Telecom काल्पनिक है।"), "language": W("Language", "भाषा"), "error": W("Something went wrong. Please try again.", "कुछ गड़बड़ हुई। कृपया दोबारा कोशिश करें।"),
                     "offline": W("We can't reach the server. Check your connection and try again.", "सर्वर से संपर्क नहीं हो पाया। अपना कनेक्शन जाँचकर दोबारा कोशिश करें।"),
-                    "slow": W("This is taking too long. Please try again.", "इसमें बहुत समय लग रहा है। कृपया दोबारा कोशिश करें।"), "new_chat": W("New chat", "नई चैट"),
+                    "slow": W("This is taking too long. Please try again.", "इसमें बहुत समय लग रहा है। कृपया दोबारा कोशिश करें।"), "new_chat": W("New chat", "नई चैट"), "switch": W("Staff view", "स्टाफ़ व्यू"), "switch_to": "/partner",
                     "new_confirm": W("Start a new chat? Your answers and current quote will be cleared. Orders you've accepted stay in your tracker.", "नई चैट शुरू करें? आपके जवाब और मौजूदा कोटेशन हट जाएँगे। स्वीकार किए गए ऑर्डर ट्रैकर में रहेंगे।"), **link_label(s)}}
 
 
@@ -333,7 +333,7 @@ def contact_view(s: Session) -> dict:
     W, saved = say(s), contacts.get(s.user)
     return {"title": W("How we reach you", "हम आपसे कैसे संपर्क करें"), "why": W("Our technician needs a number to arrange installation, and order updates go to it if you turned them on. You'll need this before paying.", "इंस्टॉलेशन तय करने के लिए हमारे तकनीशियन को एक नंबर चाहिए, और अगर आपने ऑर्डर अपडेट चालू किए हैं तो वे इसी पर आएँगे। भुगतान से पहले यह ज़रूरी है।"),
             "saved": {"name": saved["name"], "phone": saved["phone"]} if saved else None, "saved_label": W("Saved", "सहेजा गया"), "edit": W("Change", "बदलें"),
-            "name": W("Your name", "आपका नाम"), "phone": W("Mobile number", "मोबाइल नंबर"), "agree": W("Accel Business may use these to arrange installation and send order updates. Nothing else.", "Accel Business इनका उपयोग केवल इंस्टॉलेशन तय करने और ऑर्डर अपडेट भेजने के लिए करे।"),
+            "name": W("Your name", "आपका नाम"), "phone": W("Mobile number", "मोबाइल नंबर"), "agree": W("Accel Business may use these to arrange installation, send order updates and let me reopen my order with a code. Nothing else.", "Accel Business इनका उपयोग केवल इंस्टॉलेशन तय करने, ऑर्डर अपडेट भेजने और कोड से मेरा ऑर्डर फिर से खोलने देने के लिए करे।"),
             "if_no": W("If you say no: we can't arrange installation. You can withdraw this later on the Your data page, which deletes them.", "अगर आप मना करते हैं: हम इंस्टॉलेशन तय नहीं कर पाएँगे। बाद में 'आपका डेटा' पेज पर इसे वापस ले सकते हैं, जिससे यह जानकारी हट जाएगी।"), "save": W("Save my contact details", "मेरी संपर्क जानकारी सहेजें")}
 
 
@@ -435,13 +435,23 @@ def kyc(s: Session) -> dict:
             "accept_first": W("Your documents are verified. Accept a quote to continue.", "आपके दस्तावेज़ सत्यापित हैं। आगे बढ़ने के लिए कोटेशन स्वीकार करें।") if last and last["verdict"] == "verified" and not s.order_id else None, "quote": t["quote"], "pay": {"label": f"{t['pay']} · ₹{orders.first_due(orders.get(s.order_id)):,}", "order": s.order_id} if can_pay else None, "paid_notice": paid_notice, "tracker": t["tracker"], "need_contact": need_contact_text(s) if need_contact else None}
 
 
+def find_view(s: Session) -> dict:
+    """Reopen an order from another day or phone: order number, the mobile given on the Consent page, then a code."""
+    W = say(s)
+    return {"title": W("Find my order", "मेरा ऑर्डर खोजें"), "intro": W("Ordered earlier, or on another phone? Enter your order number and the mobile number you gave us.", "पहले या किसी दूसरे फ़ोन से ऑर्डर किया था? अपना ऑर्डर नंबर और हमें दिया मोबाइल नंबर लिखें।"),
+            "order": W("Order number", "ऑर्डर नंबर"), "phone": W("Mobile number", "मोबाइल नंबर"), "send": W("Send me a code", "मुझे कोड भेजें"),
+            "code": W("6-digit code", "6 अंकों का कोड"), "open": W("Open my order", "मेरा ऑर्डर खोलें"), "again": W("Ask for a new code", "नया कोड माँगें"),
+            "sent": W("Code sent to {to}.", "कोड {to} पर भेजा गया।"), "demo": W("Demo: no SMS is sent, so here is the code a real launch would text you:", "डेमो: कोई SMS नहीं भेजा जाता, इसलिए असली सेवा में भेजा जाने वाला कोड यह है:"),
+            "fresh": W("Opening your order starts this browser afresh.", "ऑर्डर खोलने पर यह ब्राउज़र नए सिरे से शुरू होगा।")}
+
+
 def tracker(s: Session) -> dict:
     W, t = say(s), L[s.ui_lang]
     head = chrome(s, "tracker")
     mine = orders.for_user(s.user)
     panel = consent_panel(s)
     if not mine:
-        return {**head, "title": t["tracker"], "empty": t["no_order"], "quote": t["quote"], "panel": panel if consent.records(s.user) else None}
+        return {**head, "title": t["tracker"], "empty": t["no_order"], "quote": t["quote"], "panel": panel if consent.records(s.user) else None, "find": find_view(s)}
     oid = s.tracker_order if s.tracker_order in mine else s.order_id if s.order_id in mine else mine[0]
     names = dict(zip(orders.STAGES, t["stages"] or orders.STAGES))
     o = orders.get(oid)
@@ -450,7 +460,7 @@ def tracker(s: Session) -> dict:
     consent_ok = consent.KYC in consent.active(s.user)
     step = orders.next_step(o)
     fromiso = orders.date.fromisoformat
-    out = {**head, "title": t["tracker"], "order": oid, "orders": [{"id": n, "label": f"#{n} · ₹{orders.get(n)['monthly']:,}{W('/month', '/माह')} · {names[orders.get(n)['stage']]}"} for n in mine] if len(mine) > 1 else None, "order_label": W("Order", "ऑर्डर"), "stage": names[o["stage"]], "progress": (o["stage_index"] + 1) / len(orders.STAGES)}
+    out = {**head, "title": t["tracker"], "order": oid, "order_no": W(f"Order number {oid}. Keep it to find this order again from another phone or day.", f"ऑर्डर नंबर {oid}। किसी दूसरे फ़ोन या दिन इस ऑर्डर को फिर से देखने के लिए इसे संभालकर रखें।"), "orders": [{"id": n, "label": f"#{n} · ₹{orders.get(n)['monthly']:,}{W('/month', '/माह')} · {names[orders.get(n)['stage']]}"} for n in mine] if len(mine) > 1 else None, "order_label": W("Order", "ऑर्डर"), "stage": names[o["stage"]], "progress": (o["stage_index"] + 1) / len(orders.STAGES)}
     if activated: out["activated"] = W("Your connection is active.", "आपका कनेक्शन चालू है।")
     elif verdict != "verified":
         # Hold: say why, what to do, and what happened to any payment. Refunds aren't in the rules, so none is promised.
@@ -602,7 +612,7 @@ def what_if(segment_name: str, share: float, price_move: float, churn_move: floa
             "note": f"Starts from the data for {b['n']} activated {segment_name.lower()} customers: ₹{b['spend']:,.0f} spent per activation (all channels), ₹{b['value']:,.0f} a month, {b['churn']:.0%} churn in 6 months. Phone-led sales cost ₹{b['remote']:,.0f} per activation. Assumptions: demand doesn't change with price, and a customer who leaves in the first 6 months leaves at month 3. Revenue, not margin."}
 
 
-ACTION_TEXT = {"consent_granted": "Gave consent", "consent_withdrawn": "Withdrew consent", "kyc_result": "KYC result", "kyc_review_proposed": "Reviewer proposed", "kyc_review_confirmed": "Reviewer confirmed",
+ACTION_TEXT = {"order_reopened": "Reopened an order with a code", "consent_granted": "Gave consent", "consent_withdrawn": "Withdrew consent", "kyc_result": "KYC result", "kyc_review_proposed": "Reviewer proposed", "kyc_review_confirmed": "Reviewer confirmed",
                "kyc_review_sent_back": "Reviewer sent back", "rights_correction_requested": "Asked for a correction", "erasure": "Erased their data", "contact_saved": "Saved contact details", "deleted": "Data deleted"}
 PURPOSE_TEXT = {consent.KYC: "KYC", consent.UPDATES: "order updates", consent.CALLBACK: "call-back", consent.VOICE: "voice", consent.CONTACT: "contact details"}
 
@@ -621,11 +631,24 @@ def grouped_logs(limit: int = 1000) -> dict:
             "headers": ["When", "Action", "Detail"], "count_label": "actions", "last_label": "Latest"}
 
 
-def partner(scores: dict, selfcheck: dict) -> dict:
+def evidence(ev: dict, selfcheck: dict) -> dict:
+    """Rerunnable proof for judges, next to the KYC self-check. Results come from running the checks now, never from a stored claim."""
+    return {"title": "Evidence you can rerun", "note": "Runs the same checks as our CI on this computer, each in its own process with a throwaway database and no AI key, so live data is untouched. Advisor scenarios take about a minute.",
+            "button": "Rerun advisor scenarios and security probes", "headers": ["Check", "Result", "Command", "Failures"],
+            "rows": [[r["label"], ("✓ " if r["ok"] else "✗ ") + r["result"], r["command"], "; ".join(r["failed"]) or "none"] for r in ev["rows"]],
+            "summary": ("All checks passed." if ev["all_passed"] else "Some checks failed: see the table.") if ev["state"] == "done" else None, "ok": ev["all_passed"],
+            "unavailable": "The tests folder isn't on this server, so these checks can't run here." if ev["state"] == "unavailable" else None,
+            "state": ev["state"], "done": ev["done"], "total": ev["total"], "labels": ev.get("labels", []),
+            "kyc": selfcheck,
+            "terminal": [["pytest -q", "Every unit, web, KYC and data test"], ["python tests/kyc_stress.py", "KYC on degraded uploads and forged certificates (slow)"], ["python tests/live_check.py 8", "The hardest advisor scenarios with live Gemini (uses free quota)"]]}
+
+
+def partner(scores: dict, selfcheck: dict, ev: dict | None = None) -> dict:
     """Staff only: a demo with no login, so contact details and identifiers are masked."""
+    review = _review(selfcheck)
     return {"title": "Partner queue", "intro": "For specialists and channel partners. A demo view with no login, so contact details and identifiers are masked.",
-            "tabs": [{"key": "dash", "label": "Live dashboard"}, {"key": "review", "label": "KYC review"}, {"key": "leads", "label": "Leads and routing"}, {"key": "money", "label": "Payback what-if"}, {"key": "logs", "label": "Logs"}],
-            "dash": _dashboard(), "review": _review(selfcheck), "leads": _leads(scores),
+            "tabs": [{"key": "dash", "label": "Live dashboard"}, {"key": "review", "label": "KYC review"}, {"key": "leads", "label": "Leads and routing"}, {"key": "money", "label": "Payback what-if"}, {"key": "logs", "label": "Logs"}, {"key": "evidence", "label": "Evidence"}],
+            "dash": _dashboard(), "review": review, "leads": _leads(scores),
             "money": {"segments": list(insights.payback_base()), "default": insights.MICRO_SEG, **what_if(insights.MICRO_SEG, 0, 0, 0)},
-            "logs": grouped_logs(),
-            "lang": "en", "nav": {"title": "Accel Business", "data": "Your data", "skip": "Skip to content", "banner": "Demo. All data is synthetic. Accel Telecom is fictional.", "language": "Language", "error": "Something went wrong. Please try again.", "offline": "We can't reach the server. Check your connection and try again.", "slow": "This is taking too long. Please try again."}, "journey": None}
+            "logs": grouped_logs(), "evidence": evidence(ev or {"state": "idle", "done": 0, "total": 0, "rows": [], "all_passed": False}, review["selfcheck"]),
+            "lang": "en", "nav": {"title": "Accel Business", "data": "Your data", "skip": "Skip to content", "switch": "Customer app", "switch_to": "/advisor", "banner": "Demo. All data is synthetic. Accel Telecom is fictional.", "language": "Language", "error": "Something went wrong. Please try again.", "offline": "We can't reach the server. Check your connection and try again.", "slow": "This is taking too long. Please try again."}, "journey": None}

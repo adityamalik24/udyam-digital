@@ -1,6 +1,6 @@
 """The mobile website: a JSON API over core/ plus a static page. Decisions stay in core/; this file checks who may do what."""
 from __future__ import annotations
-import hmac, io, json, os, threading, time
+import hmac, io, json, os, re, subprocess, sys, tempfile, threading, time
 from datetime import date
 from pathlib import Path
 from urllib.parse import unquote
@@ -9,7 +9,7 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, Response
 from fastapi.staticfiles import StaticFiles
 from PIL import Image
-from core import asr, billscan, callback, consent, contacts, orders, retention, reviews, rights
+from core import asr, billscan, callback, consent, contacts, db, find_order, orders, retention, reviews, rights
 from core.kyc import forensics
 from core.advisor import State, from_form, quick_replies, turn
 from core.catalogue import catalogue
@@ -33,6 +33,16 @@ _decode_slot = threading.Semaphore(1)  # and so is opening a big photo
 _waiting = 0
 _waiting_guard = threading.Lock()
 _selfcheck: dict = {"state": "idle", "done": 0, "rows": []}
+ROOT = Path(__file__).resolve().parents[1]
+# Evidence for judges: the same checks CI runs, rerun on demand. Each runs in its own process with a throwaway database
+# and no LLM key, so the live app's data and quota are never touched.
+EVIDENCE = [("Advisor scenarios: main set", ["tests/run_scenarios.py", "tests/advisor_scenarios.yaml"]),
+            ("Advisor scenarios: development set", ["tests/run_scenarios.py", "tests/advisor_dev.yaml"]),
+            ("Advisor scenarios: unseen set", ["tests/run_scenarios.py", "tests/advisor_unseen.yaml"]),
+            ("Advisor scenarios: teammate set", ["tests/run_scenarios.py", "tests/advisor_teammate.yaml"]),
+            ("Security probes (red team)", ["tests/red_team.py"])]
+EVIDENCE_TIMEOUT = 900
+_evidence: dict = {"state": "idle", "done": 0, "rows": []}
 STAFF_PATHS = ("/api/partner/", "/api/view/partner")
 STAFF_TRIES_PER_MINUTE = 10  # wrong passcodes across everyone, so it can't be guessed quickly
 _staff_fails: list = []
@@ -102,7 +112,7 @@ def healthz():
 @app.get("/api/view/{page}")
 def view(page: str, request: Request):
     s = sess(request)
-    if page == "partner": return V.partner(lead_scores(), selfcheck_view())
+    if page == "partner": return V.partner(lead_scores(), selfcheck_view(), evidence_view())
     fn = {"home": V.home, "advisor": V.advisor, "quote": V.quote, "consent": V.consent_page, "kyc": V.kyc, "tracker": V.tracker, "data": V.data_page}.get(page)
     if not fn: raise HTTPException(404)
     with s.lock:
@@ -595,6 +605,64 @@ async def data_erase(request: Request):
     return await run_in_threadpool(work)
 
 
+# ---- Find my order (another day or phone) -------------------------------------------------------------------------
+FINDS_PER_MINUTE = 60  # across everyone: new browsers can't be used to guess order numbers quickly
+_finds: list = []
+
+
+@app.post("/api/track/find")
+async def track_find(request: Request):
+    s, d = sess(request), await body(request)
+    def work():
+        W = V.say(s)
+        now = time.time()
+        with s.lock:
+            s.find_times = [t for t in s.find_times if now - t < find_order.FIND_WINDOW]
+            with _waiting_guard:
+                _finds[:] = [t for t in _finds if now - t < 60]
+                busy = len(_finds) >= FINDS_PER_MINUTE
+                if not busy and len(s.find_times) < find_order.MAX_FINDS: _finds.append(now)
+            if busy or len(s.find_times) >= find_order.MAX_FINDS:
+                return JSONResponse({"problem": W("Too many tries. Please wait 10 minutes and try again.", "बहुत ज़्यादा कोशिशें हुईं। कृपया 10 मिनट बाद फिर कोशिश करें।")}, 429)
+            s.find_times.append(now)
+            oid, phone = find_order.order_of(d.get("order")), find_order.phone_of(str(d.get("phone") or ""))
+            if not oid or not phone:
+                return JSONResponse({"problem": W("Enter the order number and a 10-digit mobile number.", "ऑर्डर नंबर और 10 अंकों का मोबाइल नंबर लिखें।")}, 400)
+            who = find_order.owner(oid, phone)
+            if not who:
+                return JSONResponse({"problem": W("We couldn't find an order with that number and mobile. Check both, or talk to a person.", "इस नंबर और मोबाइल से कोई ऑर्डर नहीं मिला। दोनों जाँचें, या किसी व्यक्ति से बात करें।")}, 404)
+            if who == s.user:
+                s.tracker_order = oid
+                return {"done": True}
+            s.find = find_order.new_code(who, oid, now)
+            return {"code_sent": True, "demo_code": s.find["code"], "to": "••••••" + phone[-4:]}
+    return await run_in_threadpool(work)
+
+
+@app.post("/api/track/verify")
+async def track_verify(request: Request):
+    s, d, sid = sess(request), await body(request), request.state.sid
+    def work():
+        W = V.say(s)
+        with s.lock:
+            result = find_order.check(s.find, str(d.get("code") or ""))
+            if result == "ok":
+                pending, lang = s.find, s.ui_lang
+            else:
+                if result != "wrong": s.find = None
+                text = {"expired": W("That code has expired. Ask for a new one.", "यह कोड पुराना हो गया है। नया कोड माँगें।"),
+                        "too_many": W("Too many wrong codes. Ask for a new one.", "बहुत ज़्यादा गलत कोड। नया कोड माँगें।"),
+                        "wrong": W("That code isn't right. Please check it and try again.", "यह कोड सही नहीं है। जाँचकर फिर से लिखें।")}[result]
+                return JSONResponse({"problem": text}, 400)
+        # The browser now belongs to the order's owner: a fresh session, so nothing of the previous visitor carries over.
+        fresh = reset(sid, lang)
+        with fresh.lock:
+            fresh.user, fresh.tracker_order = pending["user"], pending["order"]
+        db.audit(pending["user"], "order_reopened")
+        return {"done": True}
+    return await run_in_threadpool(work)
+
+
 # ---- Partner queue -------------------------------------------------------------------------------------------------
 @app.post("/api/staff/login")
 async def staff_login(request: Request):
@@ -669,6 +737,49 @@ def _run_selfcheck() -> None:
         _selfcheck["state"] = "done"
     except Exception:
         _selfcheck["state"] = "error"
+
+
+def evidence_view() -> dict:
+    rows = _evidence["rows"]
+    ready = all((ROOT / args[-1]).exists() for _, args in EVIDENCE)
+    return {"state": _evidence["state"] if ready else "unavailable", "done": _evidence["done"], "total": len(EVIDENCE), "rows": rows, "labels": [label for label, _ in EVIDENCE],
+            "all_passed": bool(rows) and _evidence["state"] == "done" and all(r["ok"] for r in rows)}
+
+
+def _run_one(args: list[str]) -> dict:
+    with tempfile.TemporaryDirectory() as tmp:
+        env = {**os.environ, "LLM_API_KEY": "", "PARTNER_PASSCODE": "", "UDYAM_DB": os.path.join(tmp, "evidence.db"), "PYTHONIOENCODING": "utf-8"}
+        try:
+            r = subprocess.run([sys.executable, *args], cwd=ROOT, env=env, capture_output=True, text=True, timeout=EVIDENCE_TIMEOUT)
+        except subprocess.TimeoutExpired:
+            return {"result": "Timed out", "failed": [], "ok": False}
+    lines = [l.strip() for l in r.stdout.splitlines() if l.strip()]
+    total = next((l for l in reversed(lines) if re.match(r"^\d+/\d+ ", l)), None)
+    failed = [re.sub(r"^FAIL\s+", "", l)[:120] for l in lines if l.startswith("FAIL")]
+    m = re.match(r"^(\d+)/(\d+)", total or "")
+    ok = bool(m) and m.group(1) == m.group(2) and r.returncode == 0 and not failed
+    return {"result": total or "No result", "failed": failed[:10], "ok": ok}
+
+
+def _run_evidence() -> None:
+    rows = []
+    try:
+        for n, (label, args) in enumerate(EVIDENCE):
+            _evidence["done"] = n
+            rows.append({"label": label, "command": "python " + " ".join(args), **_run_one(args)})
+            _evidence["rows"] = list(rows)
+        _evidence["state"] = "done"
+    except Exception:
+        _evidence["state"] = "error"
+
+
+@app.post("/api/partner/evidence")
+def partner_evidence():
+    if evidence_view()["state"] == "unavailable": raise HTTPException(409, "tests_missing")
+    if _evidence["state"] != "running":
+        _evidence.update(state="running", done=0, rows=[])
+        threading.Thread(target=_run_evidence, daemon=True).start()
+    return evidence_view()
 
 
 @app.post("/api/partner/selfcheck")

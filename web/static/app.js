@@ -113,7 +113,7 @@ function shell(v, ...content) {
           h("button", { type: "button", lang: "en", "aria-pressed": String(v.lang === "en"), onclick: setLang("en") }, "English"),
           h("button", { type: "button", lang: "hi", "aria-pressed": String(v.lang === "hi"), onclick: setLang("hi") }, "हिन्दी"))))),
     h("main", { id: "main", tabindex: "-1" }, steps, h("div", { id: "flash", "aria-live": "polite" }), content),
-    h("footer", null, v.nav.banner)));
+    h("footer", null, v.nav.banner, v.nav.switch ? [" · ", h("a", { class: "footlink", href: v.nav.switch_to, onclick: go(v.nav.switch_to) }, v.nav.switch)] : null)));
 }
 
 // ---- Home --------------------------------------------------------------------------------------------------------
@@ -493,12 +493,39 @@ function drawKyc(v) {
 }
 
 // ---- Tracker -----------------------------------------------------------------------------------------------------
+// Reopen an order from another day or phone. The server checks the order number and mobile, then a one-time code.
+let findState = { order: "", phone: "", code: "", sent: null };
+function drawFind(f) {
+  const problem = h("div");
+  const fail = (err) => problem.replaceChildren(note("danger", err.message));
+  const ask = async (e) => {
+    if (e) e.preventDefault();
+    try { const r = await api("/api/track/find", { order: findState.order, phone: findState.phone }); if (r.done) { findState = { order: "", phone: "", code: "", sent: null }; route(); return; } findState.sent = r; findState.code = ""; route(); } catch (err) { fail(err); }
+  };
+  const open = async (e) => {
+    e.preventDefault();
+    try { await api("/api/track/verify", { code: findState.code }); findState = { order: "", phone: "", code: "", sent: null }; route(); } catch (err) { fail(err); }
+  };
+  const sent = findState.sent;
+  return h("section", { class: "card stack", id: "find" }, h("h2", null, f.title), h("p", { class: "small" }, f.intro),
+    sent ? h("form", { class: "stack", onsubmit: open },
+        note("success", f.sent.replace("{to}", sent.to)),
+        note("neutral", f.demo, h("strong", { class: "code" }, sent.demo_code)),
+        field(f.code, h("input", { type: "text", inputmode: "numeric", autocomplete: "one-time-code", maxlength: "6", value: findState.code, oninput: e => findState.code = e.target.value })),
+        h("p", { class: "small muted" }, f.fresh), problem,
+        h("button", { type: "submit", class: "btn primary full" }, f.open),
+        button(f.again, () => { findState.sent = null; route(); }, "btn text"))
+      : h("form", { class: "stack", onsubmit: ask },
+        field(f.order, h("input", { type: "text", inputmode: "numeric", maxlength: "12", value: findState.order, oninput: e => findState.order = e.target.value })),
+        field(f.phone, h("input", { type: "tel", inputmode: "numeric", autocomplete: "tel", maxlength: "16", value: findState.phone, oninput: e => findState.phone = e.target.value })),
+        problem, h("button", { type: "submit", class: "btn secondary full" }, f.send)));
+}
 function drawTracker(v) {
-  if (v.empty) { shell(v, h("h1", null, v.title), note("neutral", v.empty), link("/quote", v.quote, "btn primary full"), v.panel && drawPanel(v.panel)); return; }
+  if (v.empty) { shell(v, h("h1", null, v.title), note("neutral", v.empty), link("/quote", v.quote, "btn primary full"), v.find && drawFind(v.find), v.panel && drawPanel(v.panel)); return; }
   const order = v.order, demo = (action) => act("/api/order/demo", { order, action }, drawTracker);
   let newDate = v.reschedule && v.reschedule.value;
   const hold = v.hold, nx = v.next;
-  shell(v, h("h1", null, v.title),
+  shell(v, h("h1", null, v.title), v.order_no && h("p", { class: "small muted" }, v.order_no),
     v.orders && field(v.order_label, select(Object.fromEntries(v.orders.map(o => [o.id, o.label])), String(order), (e) => act("/api/tracker/select", { order: Number(e.target.value) }, drawTracker)())),
     h("div", { class: "card pick" }, h("h2", null, v.stage), h("progress", { max: "1", value: v.progress, "aria-label": v.stage }),
       nx && h("p", null, h("strong", null, `${nx.title}: `), `${nx.stage} · ${nx.who}`), nx && nx.estimate && h("p", { class: "small" }, nx.estimate), v.tech && h("p", { class: "small" }, v.tech)),
@@ -556,10 +583,27 @@ const tblSection = (t) => h("section", { class: "stack" }, t.title && h("h2", nu
 function drawPartner(v) {
   clearTimeout(pollTimer);
   const tabs = h("div", { class: "tabs", role: "tablist" }, v.tabs.map(t => h("button", { type: "button", role: "tab", "aria-selected": String(partnerTab === t.key), onclick: () => { partnerTab = t.key; drawPartner(v); } }, t.label)));
-  const body = { dash: () => [h("p", { class: "small muted" }, v.dash.note), v.dash.tables.map(tblSection)], review: () => drawReview(v.review), leads: () => v.leads.tables.map(tblSection), money: () => drawMoney(v.money), logs: () => drawLogs(v.logs) }[partnerTab]();
+  const body = { dash: () => [h("p", { class: "small muted" }, v.dash.note), v.dash.tables.map(tblSection)], review: () => drawReview(v.review), leads: () => v.leads.tables.map(tblSection), money: () => drawMoney(v.money), logs: () => drawLogs(v.logs), evidence: () => drawEvidence(v.evidence) }[partnerTab]();
   shell(v, h("h1", null, v.title), h("p", { class: "small muted" }, v.intro), tabs, h("div", { class: "stack", role: "tabpanel" }, body));
   const sc = v.review.selfcheck;
-  if (sc.state === "running" && partnerTab === "review") pollTimer = setTimeout(() => { if (location.pathname === "/partner") route(); }, 2000);
+  if ((sc.state === "running" && (partnerTab === "review" || partnerTab === "evidence")) || (v.evidence.state === "running" && partnerTab === "evidence")) pollTimer = setTimeout(() => { if (location.pathname === "/partner") route(); }, 2000);
+}
+function selfcheckBlock(sc) {
+  return h("section", { class: "stack" }, h("h2", null, sc.title), h("p", { class: "small muted" }, sc.note),
+    sc.state === "running" ? h("div", { class: "stack", role: "status" }, h("progress", { max: sc.total, value: sc.done }), h("p", null, `K${String(sc.done + 1).padStart(2, "0")}…`)) : button(sc.button, act("/api/partner/selfcheck", {}, () => route())),
+    sc.summary && note(sc.ok ? "success" : "danger", sc.summary), sc.state === "error" && note("danger", nav.error), sc.rows.length ? table(sc.headers, sc.rows) : null);
+}
+// Proof judges can rerun: the advisor scenarios and security probes, run on the server in separate processes.
+function drawEvidence(e) {
+  const running = e.state === "running";
+  return [h("section", { class: "stack" }, h("h2", null, e.title), h("p", { class: "small muted" }, e.note),
+      e.unavailable ? note("neutral", e.unavailable)
+        : running ? h("div", { class: "stack", role: "status" }, h("progress", { max: e.total, value: e.done }), h("p", null, `${e.labels[e.done] || ""}…`))
+        : button(e.button, act("/api/partner/evidence", {}, () => route())),
+      e.summary && note(e.ok ? "success" : "danger", e.summary), e.state === "error" && note("danger", nav.error),
+      e.rows.length ? table(e.headers, e.rows) : null),
+    selfcheckBlock(e.kyc),
+    h("section", { class: "stack" }, h("h2", null, "Also from the terminal"), table(["Command", "What it checks"], e.terminal))];
 }
 function drawLogs(l) {
   if (!l.groups.length) return [h("p", { class: "small muted" }, l.note), note("neutral", l.empty)];
@@ -589,16 +633,14 @@ function drawReview(r) {
       h("div", { class: "links" }, button("Confirm", go(true), "btn primary"), button("Send back", go(false), "btn secondary")));
   }));
   out.push(tblSection(r.rights));
-  out.push(h("section", { class: "stack" }, h("h2", null, sc.title), h("p", { class: "small muted" }, sc.note),
-    sc.state === "running" ? h("div", { class: "stack", role: "status" }, h("progress", { max: sc.total, value: sc.done }), h("p", null, `K${String(sc.done + 1).padStart(2, "0")}…`)) : button(sc.button, act("/api/partner/selfcheck", {}, () => route())),
-    sc.summary && note(sc.ok ? "success" : "danger", sc.summary), sc.state === "error" && note("danger", nav.error), sc.rows.length ? table(sc.headers, sc.rows) : null));
+  out.push(selfcheckBlock(sc));
   return out;
 }
 const moneyState = { segment: null, share: 0, price: 0, churn: 0 };
 function drawMoney(m) {
   if (!moneyState.segment) moneyState.segment = m.default;
   const shown = h("div", { class: "stack" });
-  const paint = (r) => shown.replaceChildren(h("div", { class: "facts" }, r.metrics.map(x => h("div", null, h("dt", null, x.label), h("dd", { class: "big" }, x.value),
+  const paint = (r) => shown.replaceChildren(h("dl", { class: "facts" }, r.metrics.map(x => h("div", null, h("dt", null, x.label), h("dd", { class: "big" }, x.value),
     x.delta && h("span", { class: "tag " + ((x.delta.startsWith("-") === x.good_down) ? "ok" : "reject") }, x.delta)))), h("p", { class: "small muted" }, r.note));
   const refresh = async () => { try { paint(await api(`/api/partner/whatif?${new URLSearchParams({ segment: moneyState.segment, share: moneyState.share / 100, price: moneyState.price / 100, churn: moneyState.churn / 100 })}`, undefined, "GET")); } catch (err) { showError(err); } };
   const slider = (label, key, min, max, step, unit) => {
@@ -621,7 +663,7 @@ function drawStaffLogin(message) {
       try { await api("/api/staff/login", d); route(); } catch (err) { problem.replaceChildren(note("danger", err.message)); }
     } },
       field("Staff passcode", h("input", { type: "password", autocomplete: "current-password", maxlength: "64", oninput: e => d.code = e.target.value })),
-      problem, h("button", { type: "submit", class: "btn primary full" }, "Open"))))));
+      problem, h("button", { type: "submit", class: "btn primary full" }, "Open")), link("/advisor", "Back to the customer app", "btn text")))));
   root.querySelector("input")?.focus();
 }
 

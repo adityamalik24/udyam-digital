@@ -51,6 +51,8 @@ class Session:
     fid: str = field(default_factory=lambda: uuid4().hex)  # funnel id for the dashboard: random, never the user id
     ab: str = field(default_factory=pick_variant)  # quote layout for the A/B test
     staff: bool = False      # entered the staff passcode, when one is set
+    find: dict | None = None  # a one-time code waiting to reopen an order (core.find_order)
+    find_times: list = field(default_factory=list)
     seen: float = field(default_factory=time.time)
     lock: threading.RLock = field(default_factory=threading.RLock)
 

@@ -10,7 +10,7 @@ uvicorn web.server:app --port 8000
 pytest -q
 python tests/run_scenarios.py
 ```
-Open http://localhost:8000 on a phone-width window. The staff view (Partner queue) is at http://localhost:8000/partner and isn't linked from the customer pages.
+Open http://localhost:8000 on a phone-width window. The staff view (Partner queue) is at http://localhost:8000/partner, or use the "Staff view" link in the footer.
 
 Set `LLM_API_KEY` (free Gemini key) in `.env` to enable LLM extraction, rewording, translation and voice input. It can hit free-tier limits, in which case the app falls back to the parser and shows a notice. Without it the advisor is fully functional on its deterministic parser, in English, Hindi and Hinglish; only voice input and translating earlier replies need the key.
 
@@ -35,6 +35,12 @@ The older Streamlit front end (`streamlit run app/Home.py`) runs on the same `co
 | Maker-checker KYC review | Partner queue → KYC review | One person proposes, a different person confirms, and only then does the owner's result change. Reversed rejections are counted as false rejections |
 | File signals | Partner queue → KYC review | Editing software in a file's metadata, or a PDF changed after it was first saved (signed PDFs excepted). For reviewers only: they never change a verdict |
 | Snap your bill | Quote → Compare with your current bill | Local OCR reads the amount due; the owner sees it and can change it, and the photo is dropped |
+| Find my order | Tracker (no order yet) | Reopen an order from another day or phone: order number, the mobile given on the Consent page, then a one-time code (shown on screen in this demo; a real launch sends it by SMS). Rate-limited, and the code expires after 5 minutes or 3 wrong tries |
+| Evidence | Partner queue → Evidence | Reruns all four advisor scenario sets and the security probes on this computer, each in its own process with a throwaway database and no AI key, next to the KYC self-check |
+| Security probes | `python tests/red_team.py` (also in `pytest`) | 28 scripted attacks: price tampering, other people's orders, forged requests, oversized or fake uploads, path traversal, script and SQL injection, ID numbers in chat, the staff lock and code guessing |
+| Accessibility | Checked with axe-core (WCAG 2.1 A and AA) | Every customer page at phone width and every staff tab: 0 violations |
+| Regional-language chat | Advisor, with Gemini on | Messages in Bengali, Gujarati, Kannada, Malayalam, Marathi, Punjabi, Tamil or Telugu get replies in that language when Gemini can translate them, with prices and names protected; otherwise in English. The screens are in English and Hindi |
+| Staff view link | Footer of every page | "Staff view" on customer pages and "Customer app" on the staff view, for demos. Set `PARTNER_PASSCODE` if anyone else uses the laptop |
 | Read aloud | Advisor | The phone's own voices read the latest reply, in the script it's written in |
 | Routing, churn watchlist, call-first reasons | Partner queue → Leads and routing | Field visits only for site surveys (the data shows they cost several times more per activation elsewhere), paid orders ranked by churn risk from how often the owner had to chase us, and the top reasons plus an opening line for each dropped lead |
 | Payback what-if | Partner queue → Payback what-if | Starts from the deck's figures (micro: ₹20,007 ÷ ₹2,505 ≈ 8 months) and shows the effect of moving sales to phone and app, prices, or churn |

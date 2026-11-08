@@ -1,10 +1,10 @@
 """Purpose-specific consent records (DPDP Act 2023). One row per purpose; withdrawal is a timestamp, not a delete."""
 from . import db
 
-NOTICE_VERSION = "v1.5-2026-07"  # change this whenever NOTICE or NOTICE_SHORT changes, so each record shows what the person actually saw
+NOTICE_VERSION = "v1.6-2026-07"  # change this whenever NOTICE or NOTICE_SHORT changes, so each record shows what the person actually saw
 KYC, UPDATES, CALLBACK, VOICE, CONTACT = "kyc_verification", "order_updates", "callback_contact", "voice_input", "service_contact"
 REQUIRED = {KYC}
-PURPOSE_LABEL = {KYC: {"en": "KYC verification", "hi": "KYC सत्यापन"}, UPDATES: {"en": "Order updates", "hi": "ऑर्डर अपडेट"}, CALLBACK: {"en": "Call-back from our team", "hi": "हमारी टीम से कॉल बैक"}, VOICE: {"en": "Voice input in the chat", "hi": "चैट में आवाज़ से बोलना"}, CONTACT: {"en": "Contact for installation and order updates", "hi": "इंस्टॉलेशन और ऑर्डर अपडेट के लिए संपर्क"}}
+PURPOSE_LABEL = {KYC: {"en": "KYC verification", "hi": "KYC सत्यापन"}, UPDATES: {"en": "Order updates", "hi": "ऑर्डर अपडेट"}, CALLBACK: {"en": "Call-back from our team", "hi": "हमारी टीम से कॉल बैक"}, VOICE: {"en": "Voice input in the chat", "hi": "चैट में आवाज़ से बोलना"}, CONTACT: {"en": "Contact for installation, order updates and reopening your order", "hi": "इंस्टॉलेशन, ऑर्डर अपडेट और ऑर्डर फिर से खोलने के लिए संपर्क"}}
 # Shown first. It keeps what DPDP s.5 needs up front: the data, the purpose, how to use your rights and how to complain.
 NOTICE_SHORT = {
  "en": """
@@ -72,7 +72,7 @@ WITHDRAW_EFFECT = {KYC: {"en": "This deletes your saved KYC result and puts any 
                    UPDATES: {"en": "You'd stop getting status messages. Nothing else changes.", "hi": "स्टेटस मैसेज बंद हो जाएँगे। और कुछ नहीं बदलेगा।"},
                    CALLBACK: {"en": "This deletes your call-back details.", "hi": "इससे आपकी कॉल-बैक जानकारी हट जाएगी।"},
                    VOICE: {"en": "The microphone stops working in the chat. You can still type.", "hi": "चैट में माइक्रोफ़ोन बंद हो जाएगा। आप फिर भी लिख सकते हैं।"},
-                   CONTACT: {"en": "This deletes your name and number. We can't arrange installation until you add them again.", "hi": "इससे आपका नाम और नंबर हट जाएगा। दोबारा जोड़ने तक हम इंस्टॉलेशन तय नहीं कर पाएँगे।"}}
+                   CONTACT: {"en": "This deletes your name and number. We can't arrange installation, and you can't reopen your order with a code, until you add them again.", "hi": "इससे आपका नाम और नंबर हट जाएगा। दोबारा जोड़ने तक हम इंस्टॉलेशन तय नहीं कर पाएँगे और आप कोड से ऑर्डर फिर से नहीं खोल पाएँगे।"}}
 # Audio can't have identifiers removed before it is sent, the way text can, so this is its own choice with its own warning.
 VOICE_NOTICE = {"en": "Your recording goes to Google Gemini, which writes down your words. It may be processed outside India, and Google may use it to improve its products. We don't keep the recording. We can't remove anything from audio before sending it, so please don't say ID, bank or card numbers.",
                 "hi": "आपकी रिकॉर्डिंग Google Gemini को जाती है, जो आपके शब्द लिखता है। यह भारत के बाहर प्रोसेस हो सकती है, और Google इसे अपने उत्पाद सुधारने में उपयोग कर सकता है। हम रिकॉर्डिंग नहीं रखते। भेजने से पहले ऑडियो से कुछ हटाया नहीं जा सकता, इसलिए कृपया ID, बैंक या कार्ड नंबर न बोलें।"}

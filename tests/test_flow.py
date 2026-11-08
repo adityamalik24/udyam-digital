@@ -645,7 +645,7 @@ def test_what_we_hold_lists_masked_values_only():
 
 def test_notice_names_a_grievance_contact_in_both_languages():
     for lang in ("en", "hi"): assert "grievance@accel-business.example" in consent.NOTICE[lang]
-    assert consent.NOTICE_VERSION == "v1.5-2026-07"
+    assert consent.NOTICE_VERSION == "v1.6-2026-07"
 
 
 def test_cctv_in_hindi_is_not_mistaken_for_tv():

@@ -63,6 +63,7 @@ pytest -q
 python tests/run_scenarios.py
 python tests/run_scenarios.py tests/advisor_teammate.yaml
 python tests/kyc_stress.py        # slow: degraded uploads and forgeries
+python tests/red_team.py          # 28 scripted attacks on the web app (pytest runs it too)
 # CI (.github/workflows/tests.yml) runs pytest and all four scenario sets on every push, with no API key
 python tests/live_check.py 8      # spends free Gemini quota
 uvicorn web.server:app --port 8000  # the web front end
@@ -72,7 +73,7 @@ docker build -t udyam-web . && docker run --memory=512m --cpus=0.1 -p 8000:10000
 ## Front ends
 - **`web/` is the product** (FastAPI + plain JS, `uvicorn web.server:app --port 8000`; `Dockerfile` packages it). Every change goes there, with logic in `core/`.
 - `app/` (Streamlit) is **frozen** as of 2026-11-07: don't add to it. It still runs on the same `core/`, so its tests must keep passing.
-- The Partner queue (`/partner`) is staff-only and isn't linked from the customer pages. Set `PARTNER_PASSCODE` to lock it; unset, it is open (fine on a laptop only). `AB_TEST=off` shows everyone quote layout A.
+- The Partner queue (`/partner`) is staff-only; a small footer link switches between it and the customer app, for demos. Set `PARTNER_PASSCODE` to lock it; unset, it is open (fine on a laptop only). `AB_TEST=off` shows everyone quote layout A.
 - `web/` never takes a price, verdict or order total from the browser: it takes choices and recomputes. Every order action checks the order belongs to the session.
 - Voice input (`core/asr.py`) only writes words into the chat box. It needs its own consent (audio can't be redacted before it goes to Gemini), keeps no recording, redacts the transcript and never sends a message by itself.
 

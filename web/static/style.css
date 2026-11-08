@@ -33,6 +33,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .langs button[aria-pressed=true] { background: var(--ink); color: var(--surface); }
 main { width: 100%; max-width: 560px; margin: 0 auto; padding: 16px; flex: 1; display: flex; flex-direction: column; gap: 20px; }
 footer { border-top: 1px solid var(--line); background: var(--alt); padding: 8px 16px; text-align: center; font-size: 13px; color: var(--muted); }
+.footlink { color: var(--muted); text-decoration: underline; white-space: nowrap; display: inline-block; min-height: 24px; padding: 2px 0; }
 
 .steps { display: flex; gap: 2px; }
 .steps li { flex: 1 1 0; min-width: 0; text-align: center; font-size: 11.5px; line-height: 1.25; color: var(--muted); }
@@ -168,3 +169,5 @@ figure { margin: 0; }
 .logrow summary { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; }
 .logref { font-weight: 700; font-variant-numeric: tabular-nums; }
 .logwho { font-weight: 500; }
+
+.code { font-size: 22px; letter-spacing: 4px; display: block; margin-top: 4px; }
