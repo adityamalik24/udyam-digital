@@ -152,6 +152,8 @@ def _link_reason(link: str, prof: Profile, needs: set[str], asked_for_link: bool
         # who already has internet from someone else: never offer to remove it.
         have = bool(EXISTING_LINK & set(prof.current_setup))
         return ("dep_link_have" if have else "dep_link", {"name": catalogue()[deps[0]].name})
+    if not asked_for_link and link == "P02":  # internet wasn't asked for, and the size is why it's the faster line: say both
+        return ("implied_sites", {"n": prof.locations}) if (prof.employees or 1) < 10 else ("implied_staff", {"n": prof.employees})
     if not asked_for_link: return ("implied", {})
     if link == "P02":
         return ("sites", {"n": prof.locations}) if (prof.employees or 1) < 10 else ("staff", {"n": prof.employees})

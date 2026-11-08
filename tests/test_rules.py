@@ -211,3 +211,10 @@ def test_an_add_on_that_needs_our_link_never_offers_to_remove_it():
     # An add-on that doesn't need our link keeps the offer to take the connection out.
     email = recommend(Profile(business_type="clinic", city="Delhi", city_tier=1, employees=6, locations=1, has_gstin=True, needs=["cloud_email"]))
     assert email.link_reason[0] == "implied"
+
+
+def test_implied_faster_link_says_why():
+    big = recommend(Profile(business_type="retailer", city="Delhi", city_tier=1, employees=12, locations=1, has_gstin=True, needs=["pos_billing"]))
+    assert "P02" in big.items and big.link_reason == ("implied_staff", {"n": 12})
+    sites = recommend(Profile(business_type="pharmacy", city="Pune", city_tier=1, employees=6, locations=3, has_gstin=False, needs=["pos_billing"]))
+    assert sites.link_reason == ("implied_sites", {"n": 3})

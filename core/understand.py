@@ -65,7 +65,32 @@ def has_problem(text: str) -> bool:
     return bool(_PROBLEM.search(text))
 
 
+# A request to change the plan. Used only when nothing in the message did change it, so the reply can say so honestly
+# instead of a confident line that changes nothing.
+CHANGE_ASK = re.compile(r"\b(add|remove|delete|drop|change|edit|modify|update|increase|reduce|decrease|instead|switch|replace|upgrade|downgrade|cancel|make it|only want|just want|don'?t want|do not want)\b"
+                        r"|\b(badlo|badal do|hatao|hata do|jodo|jod do|kam karo)\b|बदल|हटा|जोड़|कम करो", re.I)
+CONNECTIONS = re.compile(r"\b(\d+|one|two|three|four|five|ek|do|teen|char)\s+(?:internet\s+|broadband\s+|fibre\s+|fiber\s+|wi-?fi\s+)?(?:connections?|links?)\b|(\d+)\s*कनेक्शन", re.I)
+NUMBER_WORDS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "ek": 1, "do": 2, "teen": 3, "char": 4}
+
+
+def connections_asked(text: str) -> int | None:
+    m = CONNECTIONS.search(text)
+    if not m: return None
+    w = (m.group(1) or m.group(2) or "").lower()
+    return int(w) if w.isdigit() else NUMBER_WORDS.get(w)
+
+
+def asks_change(text: str) -> bool:
+    return bool(CHANGE_ASK.search(text) or CONNECTIONS.search(text))
+
+
 TALK = {
+    "cant_change": {"en": "I couldn't change your plan from that, so it stays at ₹{m:,} a month. You can change quantities and add-ons on the Quote page, or tell me, for example, \"add CCTV for 2 cameras\", \"remove security\" or \"we have 2 locations\".",
+                    "hi": "उस संदेश से मैं आपका प्लान नहीं बदल पाया, इसलिए यह ₹{m:,} प्रति माह ही है। आप Quote पेज पर मात्रा और ऐड-ऑन बदल सकते हैं, या मुझे लिखें, जैसे \"2 कैमरों के लिए CCTV जोड़ें\", \"सिक्योरिटी हटाएँ\" या \"हमारी 2 लोकेशन हैं\"।",
+                    "hinglish": "Us message se main aapka plan nahi badal paaya, isliye yeh ₹{m:,} per month hi hai. Quote page par quantity aur add-ons badal sakte hain, ya mujhe likhiye, jaise \"2 cameras ke liye CCTV add karo\", \"security hatao\" ya \"hamari 2 locations hain\"."},
+    "connections": {"en": "Your plan has one internet connection for each location, and you told me you have {loc}. If you have {n} locations, tell me \"we have {n} locations\". For a second, backup line at the same place, ask for \"Backup 4G/5G Failover\". Your plan stays at ₹{m:,} a month until then.",
+                    "hi": "आपके प्लान में हर लोकेशन के लिए एक इंटरनेट कनेक्शन है, और आपने {loc} बताई है। अगर आपकी {n} लोकेशन हैं, तो लिखें \"हमारी {n} लोकेशन हैं\"। उसी जगह दूसरी, बैकअप लाइन के लिए \"Backup 4G/5G Failover\" माँगें। तब तक आपका प्लान ₹{m:,} प्रति माह ही है।",
+                    "hinglish": "Aapke plan mein har location ke liye ek internet connection hai, aur aapne {loc} batayi hai. Agar aapki {n} locations hain, to likhiye \"hamari {n} locations hain\". Usi jagah doosri, backup line ke liye \"Backup 4G/5G Failover\" maangiye. Tab tak aapka plan ₹{m:,} per month hi hai."},
     "greeting": {"en": "Hello!", "hi": "नमस्ते!", "hinglish": "Namaste!"},
     "how_are_you": {"en": "I'm doing well, thanks for asking!", "hi": "मैं ठीक हूँ, पूछने के लिए धन्यवाद!", "hinglish": "Main theek hoon, poochne ke liye shukriya!"},
     "thanks": {"en": "You're welcome!", "hi": "आपका स्वागत है!", "hinglish": "Koi baat nahi!"},

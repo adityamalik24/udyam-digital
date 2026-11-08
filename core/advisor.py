@@ -226,6 +226,8 @@ class State:
 
 
 LINK_WHY = {
+ "implied_staff": ("this needs internet at your site, and it's 300 Mbps because {n} people will share it; tell me if you already have it and I'll take this out", "इसके लिए आपकी साइट पर इंटरनेट चाहिए, और 300 Mbps क्योंकि इसे {n} लोग इस्तेमाल करेंगे; पहले से है तो बताएँ, मैं इसे हटा दूँगा", "iske liye site par internet chahiye, aur 300 Mbps kyunki ise {n} log use karenge; already hai to bataiye, main ise hata dunga"),
+ "implied_sites": ("this needs internet at each site: 300 Mbps for each of your {n} locations; tell me if you already have it and I'll take this out", "इसके लिए हर साइट पर इंटरनेट चाहिए: आपकी {n} लोकेशन में से हर एक के लिए 300 Mbps; पहले से है तो बताएँ, मैं इसे हटा दूँगा", "iske liye har site par internet chahiye: aapki {n} locations mein se har ek ke liye 300 Mbps; already hai to bataiye, main ise hata dunga"),
  "dep_link": ("{name} works only on an Accel Business connection", "{name} केवल Accel Business कनेक्शन पर चलता है", "{name} sirf Accel Business connection par chalta hai"),
  "dep_link_have": ("{name} works only on an Accel Business connection, so this is needed even though you already have internet", "{name} केवल Accel Business कनेक्शन पर चलता है, इसलिए आपके पास इंटरनेट होने पर भी यह ज़रूरी है", "{name} sirf Accel Business connection par chalta hai, isliye aapke paas internet hone par bhi yeh zaroori hai"),
  "fibre_needed": ("{name} only works on wired fibre", "{name} केवल वायर्ड फाइबर पर चलता है", "{name} sirf wired fibre par chalta hai"),
@@ -563,6 +565,13 @@ def translate_reply(reply: str, code: str, client=None) -> tuple[str | None, str
         if not G.check_slots(out, slots): return G.fill_slots(out, slots), "ok"
         llm.stats["refused"] += 1
     return None, "refused"
+
+
+def _cant_change(s: State, text: str, lang: str) -> str:
+    """A change request nothing could apply: say so plainly, with what does work."""
+    n, m, loc = U.connections_asked(text), s.rec.quote.monthly, s.profile.locations or 1
+    if n: return U.TALK["connections"][lang].format(n=n, loc=U.SITES[lang][loc > 1].format(n=loc), m=m)
+    return U.TALK["cant_change"][lang].format(m=m)
 
 
 def _converse(s: State, text: str, lang: str, client=None) -> str | None:
@@ -959,6 +968,8 @@ def _route(s, text, found, lang, llm_client):
         s.profile.business_type = s.profile.business_type or "other"
     # A town we can't serve ends the discovery: further questions would waste the owner's time.
     f = None if s.profile.city_tier == 3 else next_question(s)
+    if not moved and s.rec and s.rec.quote and U.connections_asked(text):  # "only 2 connections", even phrased as a question
+        return _cant_change(s, text, lang)
     if not moved and U.is_question(text) and (f or (s.rec and s.rec.quote)):  # a real question: answer it, and never count it as a failed answer
         said = _answer(s, text, lang, llm_client) or U.TALK["cant_confirm"][lang]
         if not f: return said
@@ -989,6 +1000,9 @@ def _route(s, text, found, lang, llm_client):
             return _join(Q[f][lang], _question(s, "has_gstin", lang))
         if f not in s.asked and not (f == "has_gstin" and "city_tier+has_gstin" in s.asked): s.asked.append(f)
         return _join(_ack(s, text, u, lang) if moved else "", _question(s, f, lang))
+    if s.rec and s.rec.quote and not moved and U.asks_change(text):
+        # A change request nothing could apply: say so plainly, with what does work. Never a confident line that changes nothing.
+        return _cant_change(s, text, lang)
     if s.rec and s.rec.quote and not moved and (said := _converse(s, text, lang, llm_client)):
         return said  # a remark about the plan: answer it and keep the plan
     if s.rec and s.rec.quote and not moved and not U.PLAN_ASK.search(text):
