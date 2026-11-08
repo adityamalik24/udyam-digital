@@ -147,3 +147,28 @@ def test_no_gstin_and_cost_target(deck):
         assert not any(CAT.loc[p, "requires_gstin"] == "Y" for p in items)
     # Slide 8's cost per activation at today's spend, which slide 9's ₹10,000 target rests on.
     assert f"₹{D.acquisition_cost_inr.sum() / 566:,.0f}" == "₹9,787" and "₹9,787" in deck and "₹10,000" in deck
+
+
+def _deck_content(path):
+    texts, nums, links = [], set(), set()
+    for s in Presentation(path).slides:
+        for sh in s.shapes:
+            if sh.has_text_frame:
+                texts.append(sh.text_frame.text)
+                links |= {r.hyperlink.address for p in sh.text_frame.paragraphs for r in p.runs if r.hyperlink.address}
+            if getattr(sh, "has_table", False) and sh.has_table: texts += [c.text for r in sh.table.rows for c in r.cells]
+            if getattr(sh, "has_chart", False) and sh.has_chart: nums |= {f"{v:g}" for v in sh.chart.plots[0].series[0].values}
+    t = " ".join(texts)
+    return t, nums | set(__import__("re").findall(r"₹?\d[\d,]*(?:\.\d+)?%?", t)), links
+
+
+def test_seven_slide_deck_keeps_everything():
+    """The 7-slide version must carry every number, link and slide message of the 10-slide deck."""
+    short = ROOT / "docs/Udyam_Digital_Business_Case_7_slides.pptx"
+    full_t, full_n, full_l = _deck_content(ROOT / "docs/Udyam_Digital_Business_Case.pptx")
+    t, n, l = _deck_content(short)
+    assert len(Presentation(short).slides) == 7
+    assert not (full_n - n), sorted(full_n - n)
+    assert full_l <= l
+    titles = [s.shapes.title.text_frame.text for s in list(Presentation(ROOT / "docs/Udyam_Digital_Business_Case.pptx").slides)[1:]]
+    assert all(x.lower() in t.lower() for x in titles), [x for x in titles if x.lower() not in t.lower()]
