@@ -22,12 +22,17 @@ Set `LLM_API_KEY` (free Gemini key) in `.env` to enable LLM extraction, rewordin
 | `FRAME_ANCESTORS` | unset | One https site allowed to show the app in a frame (`https://huggingface.co` on the Space). Framed, the app only offers to open itself in its own tab |
 | `UDYAM_DB` | `udyam.db` | Where the SQLite file lives. Delete it, with the server stopped, for a clean start |
 
-## Put it online (Hugging Face Spaces, free)
-1. Make a free account at huggingface.co and an access token with **write** permission.
-2. Add to `.env` (gitignored): `HF_TOKEN=...` and `SPACE_PARTNER_PASSCODE=...` (8+ characters). `LLM_API_KEY` is already there.
-3. Commit, then run `pip install huggingface_hub && python deploy/hf_space.py`. It prints the app's link (`https://<user>-udyam-digital.hf.space`).
+## Put it online
+**Free, from this laptop (ngrok):**
+1. Make a free account at ngrok.com (no card) and copy your authtoken from its dashboard.
+2. Add to `.env` (gitignored): `NGROK_AUTHTOKEN=...` and `SPACE_PARTNER_PASSCODE=...` (8+ characters, the staff passcode).
+3. Stop any local server, then run `.venv/bin/python deploy/share_ngrok.py`. It prints the public https link.
 
-The keys go in as private Space secrets, never into files. The Space runs the same `Dockerfile` on 2 CPUs and 16 GB, sleeps after 48 hours without visitors (the next visit wakes it in a minute or two), and starts with an empty database after each restart. On a phone, the site installs like an app: "Install app" in Chrome on Android, "Add to Home Screen" in Safari on iPhone.
+It runs at the same speed as localhost, because it is localhost. The laptop must stay on, awake and online while anyone uses the link; the script keeps the Mac awake, but closing the lid on battery still sleeps it. Visitors click "Visit Site" once on ngrok's notice. In this mode `/partner` needs the passcode and the A/B test is off.
+
+**Hugging Face Spaces:** `python deploy/hf_space.py` (needs `pip install huggingface_hub` and `HF_TOKEN` in `.env`) publishes the same `Dockerfile` with the keys as private secrets. Since 2026, Docker Spaces need a Hugging Face PRO subscription.
+
+On a phone, the site installs like an app over either https link: "Install app" in Chrome on Android, "Add to Home Screen" in Safari on iPhone.
 
 ## Web front end (the main app)
 `web/` is the product: a FastAPI JSON API over `core/`, and a plain-JavaScript mobile site with voice input. The `Dockerfile` packages it for any Docker host: tested at 512 MB and 0.1 CPU, where it fits in memory but a 4-document KYC check takes 1–2 minutes.

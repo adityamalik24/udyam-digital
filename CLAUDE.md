@@ -66,6 +66,7 @@ python tests/kyc_stress.py        # slow: degraded uploads and forgeries
 # CI (.github/workflows/tests.yml) runs pytest and all four scenario sets on every push, with no API key
 python tests/live_check.py 8      # spends free Gemini quota
 uvicorn web.server:app --port 8000  # the web front end
+.venv/bin/python deploy/share_ngrok.py   # public https link from this laptop (NGROK_AUTHTOKEN, SPACE_PARTNER_PASSCODE in .env)
 docker build -t udyam-web . && docker run --memory=512m --cpus=0.1 -p 8000:10000 -e LLM_API_KEY=... udyam-web  # small-server limits
 ```
 
