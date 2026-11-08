@@ -135,3 +135,15 @@ def test_bundle_examples_come_from_the_pricing_engine(deck):
     from core.pricing import price
     for items in ({"P04": 1}, {"P01": 1, "P16": 6, "P20": 6}, {"P02": 4, "P09": 4, "P23": 4, "P10": 4}, {"P05": 1, "P24": 2}):
         assert f"₹{price(items).monthly:,}" in deck
+
+
+def test_no_gstin_and_cost_target(deck):
+    no = D.has_gstin.astype(str).str.upper() == "N"
+    micro = D.segment == "Micro retail & services"
+    assert no.sum() == 1466 and round(no.mean() * 100) == 29 and round(no[micro].mean() * 100) == 47
+    assert "1,466 leads (29%, and 47% of micro) have no GSTIN" in deck
+    # The bundles called GSTIN-free really are: nothing in them needs a GSTIN.
+    for items in (["P04"], ["P01", "P16", "P20"]):
+        assert not any(CAT.loc[p, "requires_gstin"] == "Y" for p in items)
+    # Slide 8's cost per activation at today's spend, which slide 9's ₹10,000 target rests on.
+    assert f"₹{D.acquisition_cost_inr.sum() / 566:,.0f}" == "₹9,787" and "₹9,787" in deck and "₹10,000" in deck

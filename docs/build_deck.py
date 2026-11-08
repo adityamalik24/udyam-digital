@@ -51,7 +51,7 @@ def table(s, x, y, w, rows, widths, size=11, rh=.3):
             c.fill.solid(); c.fill.fore_color.rgb = RED if i == 0 else (TINT if i % 2 == 0 else WHITE)
             if f: f.size, f.name, f.bold = Pt(size), "Calibri", i == 0; f.color.rgb = WHITE if i == 0 else INK
 
-def bars(s, x, y, w, h, cats, vals, title, kind=XL_CHART_TYPE.BAR_CLUSTERED, fmt="#,##0", vmax=None):
+def bars(s, x, y, w, h, cats, vals, title, kind=XL_CHART_TYPE.BAR_CLUSTERED, fmt="#,##0", vmax=None, unit=None):
     if kind == XL_CHART_TYPE.BAR_CLUSTERED: cats, vals = cats[::-1], vals[::-1]  # bar charts plot bottom-up
     d = CategoryChartData(); d.categories = cats; d.add_series(title, vals)
     ch = s.shapes.add_chart(kind, I(x), I(y), I(w), I(h), d).chart
@@ -64,6 +64,7 @@ def bars(s, x, y, w, h, cats, vals, title, kind=XL_CHART_TYPE.BAR_CLUSTERED, fmt
     ch.category_axis.tick_labels.font.size = Pt(11); ch.category_axis.format.line.color.rgb = MUTE
     ch.value_axis.minimum_scale = 0
     if vmax: ch.value_axis.maximum_scale = vmax
+    if unit: ch.value_axis.major_unit = unit  # PowerPoint hides this axis; Keynote and others draw it, so keep its steps round
 
 # 1 Title (template slide 1)
 s1 = p.slides[0]
@@ -102,12 +103,13 @@ text(s, .5, 3,8.8,1.7, ["Professional offices: largest high-value pool, cheapest
 def m(items):
     q = price(items); return f"₹{q.monthly:,}", f"₹{q.setup:,}", f"{q.contract} months"
 s = slide("One clear monthly price for each segment")
-B = [("Kirana, no GSTIN","Biz 5G AirFiber 100",{"P04":1}),
-     ("Clinic, 6 staff","Biz Fibre 100, Cloud Email × 6, Endpoint Security × 6",{"P01":1,"P16":6,"P20":6}),
-     ("Restaurant, 4 outlets","Biz Fibre 300, Failover, Cloud CCTV and SD-WAN, per outlet",{"P02":4,"P09":4,"P23":4,"P10":4}),
-     ("Textile unit, 40 staff","Leased Line 20, Machine Monitoring IoT × 2",{"P05":1,"P24":2})]
-table(s, .5, .9, 8.8, [["Example customer","Bundle","Monthly","Setup","Contract"]]+[[a,b,*m(c)] for a,b,c in B], [1.9,4.2,.9,.9,1], 12, .5)
-text(s, .5, 3.6, 8.8, 1, ["Each price is the midpoint of the catalogue range; activated leads paid 0.48 of the way through it on average, with no gap by tier or segment. Examples are computed by the same pricing engine the app uses."], 13)
+B = [("Micro: kirana, no GSTIN","Biz 5G AirFiber 100",{"P04":1}),
+     ("Professional: clinic, 6 staff","Biz Fibre 100, Cloud Email\u00a0×\u00a06, Endpoint Security\u00a0×\u00a06",{"P01":1,"P16":6,"P20":6}),
+     ("Multi-site: restaurant, 4 outlets","Biz Fibre 300, Failover, Cloud CCTV and SD-WAN, per outlet",{"P02":4,"P09":4,"P23":4,"P10":4}),
+     ("Manufacturer: textile unit, 40 staff","Leased Line 20, Machine Monitoring IoT × 2",{"P05":1,"P24":2})]
+table(s, .5, .9, 8.8, [["Segment and example","Bundle","Monthly","Setup","Contract"]]+[[a,b,*m(c)] for a,b,c in B], [2.5,3.6,.9,.9,1], 12, .5)
+text(s, .5, 3.55, 8.8, 1.15, ["Each price is the midpoint of the catalogue range; activated leads paid 0.48 of the way through it on average, with no gap by tier or segment. Examples are computed by the same pricing engine the app uses.",
+ "1,466 leads (29%, and 47% of micro) have no GSTIN. The micro and professional bundles need none, so KYC asks only for an ID, address proof and a declaration of no GSTIN."], 12)
 
 # 6 Product
 s = slide("A working journey where code, not the LLM, decides")
@@ -120,7 +122,7 @@ text(s, .5, 2.6, 8.8, 2.1, ["The LLM reads messages and words replies around slo
 
 # 7 Signals
 s = slide("Customers who chase status more churn more")
-bars(s, .5, .8, 4.6, 3.85, ["1","2","3","4","5"], [5.9,14.3,11.7,20.0,27.9], "6-month churn (%) by number of status-chase calls", XL_CHART_TYPE.COLUMN_CLUSTERED, "0.0", vmax=35)
+bars(s, .5, .8, 4.6, 3.85, ["1","2","3","4","5"], [5.9,14.3,11.7,20.0,27.9], "6-month churn (%) by number of status-chase calls", XL_CHART_TYPE.COLUMN_CLUSTERED, "0.0", vmax=40, unit=10)
 text(s, 5.3, .95, 4, 3.7, ["NPS also falls from 7.5 to 6.0 across the same range (p<0.001). This is a correlation, so a pilot should test it.",
  "56 of 368 activated bundles broke a catalogue rule, and 22 activations sit on a cancelled or suspended GSTIN. Enforcing rules in code stops both.",
  "Referral converts best (14.8%), WhatsApp campaigns worst (2.8%).",
@@ -130,7 +132,7 @@ text(s, 5.3, .95, 4, 3.7, ["NPS also falls from 7.5 to 6.0 across the same range
 # 8 Value
 s = slide("Recovering half of process drops takes activation to about 11%")
 bars(s, .5, .8, 4.8, 3.85, ["Today","No visit needed","Instant quote","Faster KYC"], [368,77,82,39], "Activations per quarter, and what each fix adds")
-card(s, 5.5, .85, 3.8, 1.15, "368 to 566", "activations per quarter, from the same 5,000 leads (7.4% to 11.3%)")
+card(s, 5.5, .85, 3.8, 1.15, "368 to 566", "activations per quarter, from the same 5,000 leads (7.4% to 11.3%). At today's spend that is ₹9,787 each, the basis of the ₹10,000 target")
 card(s, 5.5, 2.15, 3.8, 1.15, "Assumption", "50% recovery is our estimate, not data. 30% gives 487 activations and 70% gives 645", 16, 12)
 card(s, 5.5, 3.45, 3.8, 1.15, "To validate", "Pilot measures real recovery, and our build and run costs still need to be set against it", 16, 12)
 
