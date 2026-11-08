@@ -647,18 +647,6 @@ async function route() {
     if (token === renderToken) root.replaceChildren(h("div", { class: "shell" }, h("main", null, note("danger", err.message), button(location.pathname === "/" ? "Try again / दोबारा कोशिश करें" : "Try again / दोबारा कोशिश करें", route, "btn primary full"))));
   }
 }
-// Hugging Face shows a Space inside a frame on its own site, where browsers block this site's session cookie,
-// so a framed copy only offers to open the app in its own tab.
-function drawFramed() {
-  const url = location.origin + "/";
-  root.replaceChildren(h("div", { class: "shell" }, h("main", null, h("section", { class: "card stack" },
-    h("h1", null, "Accel Business"),
-    h("p", null, "Open the app in its own tab to use it."), h("p", { lang: "hi" }, "ऐप इस्तेमाल करने के लिए इसे अलग टैब में खोलें।"),
-    h("a", { class: "btn primary full", href: url, target: "_blank", rel: "noopener" }, "Open the app / ऐप खोलें"),
-    h("p", { class: "small muted" }, url)))));
-}
-let framed = false;
-try { framed = window.self !== window.top; } catch { framed = true; }
-if ("serviceWorker" in navigator && !framed) navigator.serviceWorker.register("/sw.js").catch(() => {});  // installable on phones
+if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});  // installable on phones
 window.addEventListener("popstate", route);
-if (framed) drawFramed(); else route();
+route();

@@ -19,17 +19,7 @@ Set `LLM_API_KEY` (free Gemini key) in `.env` to enable LLM extraction, rewordin
 | `LLM_API_KEY` | unset | Gemini key, as above |
 | `PARTNER_PASSCODE` | unset | Locks `/partner` and its API behind a staff passcode (10 wrong tries a minute at most). Unset, the staff view is open, which is only fine on your own computer |
 | `AB_TEST` | `on` | `off` shows every visitor the same quote layout (A), for a demo or judging |
-| `FRAME_ANCESTORS` | unset | One https site allowed to show the app in a frame (`https://huggingface.co` on the Space). Framed, the app only offers to open itself in its own tab |
 | `UDYAM_DB` | `udyam.db` | Where the SQLite file lives. Delete it, with the server stopped, for a clean start |
-
-## Put it online (Hugging Face Spaces)
-Since 2026, Hugging Face hosts Docker Spaces like this one only on a PRO subscription; its free plan refuses them.
-
-1. Make an account at huggingface.co and an access token with **write** permission.
-2. Add to `.env` (gitignored): `HF_TOKEN=...` and `SPACE_PARTNER_PASSCODE=...` (8+ characters). `LLM_API_KEY` is already there.
-3. Commit, then run `pip install huggingface_hub && python deploy/hf_space.py`. It prints the app's link (`https://<user>-udyam-digital.hf.space`).
-
-The keys go in as private Space secrets, never into files. The Space runs the same `Dockerfile` on 2 CPUs and 16 GB, sleeps after 48 hours without visitors (the next visit wakes it in a minute or two), and starts with an empty database after each restart. On a phone, the site installs like an app: "Install app" in Chrome on Android, "Add to Home Screen" in Safari on iPhone.
 
 ## Web front end (the main app)
 `web/` is the product: a FastAPI JSON API over `core/`, and a plain-JavaScript mobile site with voice input. The `Dockerfile` packages it for any Docker host: tested at 512 MB and 0.1 CPU, where it fits in memory but a 4-document KYC check takes 1–2 minutes.

@@ -710,16 +710,6 @@ def test_installable_on_phones_and_caches_nothing():
     assert "Airtel" not in page + m.text  # fictional brand only
 
 
-def test_frame_ancestors_only_for_a_named_https_site(monkeypatch):
-    c = client()
-    monkeypatch.delenv("FRAME_ANCESTORS", raising=False)
-    assert "frame-ancestors 'none'" in c.get("/").headers["content-security-policy"]
-    monkeypatch.setenv("FRAME_ANCESTORS", "https://huggingface.co")
-    assert "frame-ancestors https://huggingface.co;" in c.get("/").headers["content-security-policy"]
-    monkeypatch.setenv("FRAME_ANCESTORS", "* 'unsafe-inline' http://evil.example")
-    assert "frame-ancestors 'none'" in c.get("/").headers["content-security-policy"]  # junk is ignored, not passed through
-
-
 def test_ai_line_says_what_really_happens(monkeypatch):
     c = client(); c.get("/api/view/advisor")
     monkeypatch.setattr(llm, "client", lambda: None)

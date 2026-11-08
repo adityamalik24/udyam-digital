@@ -1,6 +1,6 @@
 """The mobile website: a JSON API over core/ plus a static page. Decisions stay in core/; this file checks who may do what."""
 from __future__ import annotations
-import hmac, io, json, os, re, threading, time
+import hmac, io, json, os, threading, time
 from datetime import date
 from pathlib import Path
 from urllib.parse import unquote
@@ -25,14 +25,7 @@ SCORES = Path(__file__).parent / "lead_scores.json"  # scored once while the ima
 PAGES = {"/", "/advisor", "/quote", "/consent", "/kyc", "/tracker", "/data", "/partner"}
 VOICE_PER_MINUTE = 6
 MAX_WAITING = 3  # document checks waiting for the one that's running
-CSP = "default-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; frame-ancestors {frames}; base-uri 'none'; form-action 'self'"
-
-
-def csp() -> str:
-    """FRAME_ANCESTORS lets one named site show the app in a frame (Hugging Face's Space page: https://huggingface.co).
-    Unset, no site may. Anything that isn't a plain https origin is ignored."""
-    sites = [x for x in os.environ.get("FRAME_ANCESTORS", "").split() if re.fullmatch(r"https://[a-z0-9.-]+(:\d+)?", x)]
-    return CSP.format(frames=" ".join(sites) or "'none'")
+CSP = "default-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
 app = FastAPI(title="Udyam Digital", docs_url=None, redoc_url=None, openapi_url=None)
 app.mount("/static", StaticFiles(directory=STATIC), name="static")
 _ocr_slot = threading.Semaphore(1)  # OCR is the heavy part: one at a time keeps a small server alive
@@ -66,7 +59,7 @@ async def attach_session(request: Request, call_next):
         if new:
             await run_in_threadpool(retention.run_once)
             response.set_cookie(COOKIE, sid, httponly=True, samesite="lax", secure=request.headers.get("x-forwarded-proto") == "https", max_age=86400, path="/")
-    response.headers.update({"Content-Security-Policy": csp(), "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer", "Permissions-Policy": "microphone=(self), camera=()"})
+    response.headers.update({"Content-Security-Policy": CSP, "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer", "Permissions-Policy": "microphone=(self), camera=()"})
     if request.url.path.startswith("/api"): response.headers["Cache-Control"] = "no-store"
     return response
 
