@@ -802,3 +802,11 @@ def test_evidence_tab_reruns_checks_in_a_separate_process(monkeypatch):
     assert e["state"] == "done" and e["ok"] and e["rows"][0][1].startswith("✓ ") and "attack probes held" in e["rows"][0][1], e
     monkeypatch.setattr(server, "EVIDENCE", [("Missing", ["tests/not_there.py"])])
     assert c.get("/api/view/partner").json()["evidence"]["unavailable"] and post(c, "/api/partner/evidence").status_code == 409
+
+
+def test_ai_notice_on_your_data_page_matches_reality(monkeypatch):
+    c = client(); c.get("/api/view/advisor")
+    monkeypatch.setattr(llm, "client", lambda: None)
+    assert "no AI key" in c.get("/api/view/data").json()["ai"]["off_note"]
+    monkeypatch.setattr(llm, "client", lambda: object())
+    assert c.get("/api/view/data").json()["ai"]["off_note"] is None

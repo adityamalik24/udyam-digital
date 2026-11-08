@@ -560,7 +560,7 @@ function drawData(v) {
     erasedNotice && note("success", erasedNotice),
     h("section", { class: "stack" }, h("h2", null, v.export_title), h("a", { class: "btn secondary full", href: "/api/data/export", download: "accel_business_my_data.json" }, v.export)),
     drawPanel(v.panel),
-    h("section", { class: "card stack", id: "aisettings" }, h("h2", null, v.ai.title), h("p", { class: "small" }, v.ai.body),
+    h("section", { class: "card stack", id: "aisettings" }, h("h2", null, v.ai.title), v.ai.off_note && note("neutral", v.ai.off_note), h("p", { class: "small" }, v.ai.body),
       check(v.ai.toggle, v.ai.on, (e) => act("/api/advisor/ai", { on: e.target.checked })(e)), h("p", { class: "small muted" }, v.ai.help)),
     h("section", { class: "stack" }, h("h2", null, v.correct_title),
       field(v.correct_label, h("textarea", { rows: "3", maxlength: "500", oninput: e => detail = e.target.value })), sent,

@@ -78,7 +78,7 @@ def probes():
     z = client(); z.get("/api/view/advisor")
     post(z, "/api/advisor/message", {"text": "My Aadhaar is 2345 6789 0123 and PAN ABCDE1234F, clinic in Delhi"})
     shown = " ".join(m.get("text") or "" for m in z.get("/api/view/advisor").json()["chat"])
-    con = sqlite3.connect(os.environ["UDYAM_DB"]); stored = " ".join(str(r) for t_ in ("audit", "leads") for r in con.execute(f"SELECT * FROM {t_}").fetchall()); con.close()
+    from core import db as _db; con = sqlite3.connect(str(_db.DB_PATH)); stored = " ".join(str(r) for t_ in ("audit", "leads") for r in con.execute(f"SELECT * FROM {t_}").fetchall()); con.close()
     probe("id_numbers_in_chat", "type an Aadhaar and PAN number into the chat", not re.search(r"2345\s?6789\s?0123|ABCDE1234F", shown + stored), "removed before display, storage or the LLM")
     probe("voice_without_consent", "send audio without voice consent", client().post("/api/voice", content=b"RIFF0000WAVE", headers=H).status_code == 403)
 

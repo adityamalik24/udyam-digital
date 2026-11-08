@@ -213,7 +213,8 @@ def ai_line(s: Session) -> str:
 def ai_settings(s: Session) -> dict:
     """The notice that Gemini reads the chat, and the switch to turn that off. Lives with the other privacy controls."""
     W = say(s)
-    return {"title": W("AI and your chat", "AI और आपकी चैट"), "body": W("We use Google Gemini to read the chat and word replies. It may process text outside India, and Google may use it to improve its products. We remove ID numbers and contact details before sending, but please don't type them. Our code always decides products and prices.", "चैट पढ़ने और जवाब के शब्द लिखने के लिए हम Google Gemini का उपयोग करते हैं। यह भारत के बाहर प्रोसेस हो सकता है, और Google इसे अपने उत्पाद सुधारने में उपयोग कर सकता है। भेजने से पहले हम ID नंबर और संपर्क जानकारी हटा देते हैं, फिर भी कृपया इन्हें न लिखें। प्रोडक्ट और कीमत हमेशा हमारा कोड तय करता है।"),
+    off = None if llm.client() is not None else W("This server has no AI key right now, so replies come from our rules and nothing is sent to Gemini. When a key is set:", "इस सर्वर पर अभी AI कुंजी नहीं है, इसलिए जवाब हमारे नियमों से बनते हैं और Gemini को कुछ नहीं भेजा जाता। कुंजी होने पर:")
+    return {"off_note": off, "title": W("AI and your chat", "AI और आपकी चैट"), "body": W("We use Google Gemini to read the chat and word replies. It may process text outside India, and Google may use it to improve its products. We remove ID numbers and contact details before sending, but please don't type them. Our code always decides products and prices.", "चैट पढ़ने और जवाब के शब्द लिखने के लिए हम Google Gemini का उपयोग करते हैं। यह भारत के बाहर प्रोसेस हो सकता है, और Google इसे अपने उत्पाद सुधारने में उपयोग कर सकता है। भेजने से पहले हम ID नंबर और संपर्क जानकारी हटा देते हैं, फिर भी कृपया इन्हें न लिखें। प्रोडक्ट और कीमत हमेशा हमारा कोड तय करता है।"),
             "toggle": W("Let AI read my chat", "AI को मेरी चैट पढ़ने दें"), "help": W("The advisor still works with this off.", "बंद करने पर भी सलाहकार काम करता रहेगा।"), "on": not s.advisor.no_ai}
 
 
@@ -633,7 +634,7 @@ def grouped_logs(limit: int = 1000) -> dict:
 
 def evidence(ev: dict, selfcheck: dict) -> dict:
     """Rerunnable proof for judges, next to the KYC self-check. Results come from running the checks now, never from a stored claim."""
-    return {"title": "Evidence you can rerun", "note": "Runs the same checks as our CI on this computer, each in its own process with a throwaway database and no AI key, so live data is untouched. Advisor scenarios take about a minute.",
+    return {"title": "Evidence you can rerun", "note": "Runs the same checks as our CI on this computer, each in its own process with a throwaway database and no AI key, so live data is untouched. The whole run takes under a minute.",
             "button": "Rerun advisor scenarios and security probes", "headers": ["Check", "Result", "Command", "Failures"],
             "rows": [[r["label"], ("✓ " if r["ok"] else "✗ ") + r["result"], r["command"], "; ".join(r["failed"]) or "none"] for r in ev["rows"]],
             "summary": ("All checks passed." if ev["all_passed"] else "Some checks failed: see the table.") if ev["state"] == "done" else None, "ok": ev["all_passed"],
