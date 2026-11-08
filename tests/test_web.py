@@ -693,3 +693,28 @@ def test_no_gstin_tick_is_not_offered_when_the_plan_needs_a_gstin():
     post(c, "/api/quote/accept"); post(c, "/api/consent", {"kyc": True})  # a toll-free number is sold only with a GSTIN
     v = c.get("/api/view/kyc").json()
     assert "upload_intro" in v and v["no_gstin_label"] is None and v["no_gst"] is None
+
+
+def test_installable_on_phones_and_caches_nothing():
+    import json as _json
+    c = client()
+    sw = c.get("/sw.js")
+    assert sw.status_code == 200 and "javascript" in sw.headers["content-type"] and "udyam_sid" not in sw.headers.get("set-cookie", "")
+    assert "caches." not in sw.text and "cache.put" not in sw.text  # nothing about a chat, quote or document is kept on the phone
+    m = c.get("/static/manifest.json")
+    man = _json.loads(m.text)
+    assert m.status_code == 200 and man["display"] == "standalone" and man["start_url"] == "/"
+    for icon in man["icons"]: assert c.get(icon["src"]).status_code == 200
+    page = c.get("/").text
+    assert 'rel="manifest"' in page and "apple-touch-icon" in page
+    assert "Airtel" not in page + m.text  # fictional brand only
+
+
+def test_frame_ancestors_only_for_a_named_https_site(monkeypatch):
+    c = client()
+    monkeypatch.delenv("FRAME_ANCESTORS", raising=False)
+    assert "frame-ancestors 'none'" in c.get("/").headers["content-security-policy"]
+    monkeypatch.setenv("FRAME_ANCESTORS", "https://huggingface.co")
+    assert "frame-ancestors https://huggingface.co;" in c.get("/").headers["content-security-policy"]
+    monkeypatch.setenv("FRAME_ANCESTORS", "* 'unsafe-inline' http://evil.example")
+    assert "frame-ancestors 'none'" in c.get("/").headers["content-security-policy"]  # junk is ignored, not passed through
