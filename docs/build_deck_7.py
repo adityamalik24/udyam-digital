@@ -67,10 +67,34 @@ def bars(s, x, y, w, h, cats, vals, title, kind=XL_CHART_TYPE.BAR_CLUSTERED, fmt
     if vmax: ch.value_axis.maximum_scale = vmax
     if unit: ch.value_axis.major_unit = unit  # PowerPoint hides this axis; Keynote and others draw it, so keep its steps round
 
+LINKS = [("Demo video (YouTube)", "https://youtu.be/aW-PcuTWnQo"),
+         ("Code (GitHub)", "https://github.com/adityamalik24/udyam-digital"),
+         ("Privacy note and field test (Google Drive)", "https://drive.google.com/file/d/1Piu8Oyp2Cy36tFQMDZdK8GTTN_lxKR4d/view?usp=drive_link")]
+
+def links(s, x, y, w, h, size, color, stacked=False, lead=None):
+    """Clickable links: one per line (stacked) or in one line separated by dots."""
+    b = s.shapes.add_textbox(I(x), I(y), I(w), I(h)); tf = b.text_frame; tf.word_wrap = True
+    tf.margin_left = tf.margin_right = tf.margin_top = tf.margin_bottom = 0
+    para = tf.paragraphs[0]
+    if stacked: para.space_after = Pt(3)
+    def run(t, url=None):
+        r = para.add_run(); r.text = t; r.font.size = Pt(size); r.font.color.rgb = color; r.font.name = "Calibri"
+        if url: r.hyperlink.address = url; r.font.underline = True
+        else: r.font.bold = True
+    if lead: run(lead)
+    for i, (label, url) in enumerate(LINKS):
+        if i and stacked: para = tf.add_paragraph(); para.space_after = Pt(3)
+        elif i: run("  ·  ")
+        run(label, url)
+    return b
+
 # 1 Title (template slide 1)
 s1 = p.slides[0]
 text(s1, .65, 2.75, 3.6, .5, "Udyam Digital", 26, WHITE, True)
 text(s1, .65, 3.3, 3.5, .9, ["A small business goes digital in one sitting, on a phone", "Team RNG. Enterprise Track A: business case"], 13, WHITE)
+panel = s1.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, I(.55), I(4.15), I(3.4), I(.82)); panel.adjustments[0] = .12
+panel.fill.solid(); panel.fill.fore_color.rgb = WHITE; panel.line.fill.background(); panel.shadow.inherit = False  # links show in the viewer's link colour, so give them a light background
+links(s1, .7, 4.22, 3.2, .7, 10, RED, stacked=True)
 
 # 2 Problem and where it breaks (10-slide deck: 2 + 3)
 s = slide("Only 7.4% of small-business leads activate, at ₹15,053 each. The drop reasons we can remove are about process, not demand", 16)
@@ -106,21 +130,23 @@ table(s, .5, 2.82, 8.8, [["Segment and example","Bundle","Monthly","Setup","Cont
 text(s, .5, 4.2, 8.8, .65, ["Each price is the midpoint of the catalogue range; activated leads paid 0.48 of the way through it on average, with no gap by tier or segment. Examples are computed by the same pricing engine the app uses.",
  "1,466 leads (29%, and 47% of micro) have no GSTIN. The micro and professional bundles need none, so KYC asks only for an ID, address proof and a declaration of no GSTIN."], 9.5)
 
-# 4 Product (10-slide deck: 6)
+# 4 Product (10-slide deck: 6), with the architecture diagram
 s = slide("A working journey where code, not the LLM, decides")
 for i,(h,b) in enumerate([("Advisor","English, Hindi, Hinglish, typed or spoken. At most 6 questions, no upsell"),("Quote","One price, recomputed on the server; the chat stays open to change it"),("Smart KYC","Consent first. OCR, checksums, registry checks, file-edit signs"),("Tracker","7 stages with timestamps, reschedule; download or erase your data")]):
-    card(s, .5+i*2.23, .9, 2.1, 1.55, h, b, 16, 12)
-text(s, .5, 2.6, 6.3, 2.15, ["The LLM reads messages and words replies around slots that code fills, so it can't type a price or product name in any language.",
+    card(s, .5 + (i % 2) * 2.3, .85 + (i // 2) * 1.0, 2.2, .92, h, b, 14, 10)
+text(s, .5, 2.92, 4.5, 1.95, ["The LLM reads messages and words replies around slots that code fills, so it can't type a price or product name in any language.",
  "Tested on our own cases, not the judges': 258 of 258 advisor scenarios pass in English, Hindi and Hinglish, and no eligibility or price breaks across 303,408 business profiles. All 12 KYC applicants match our manual review (5 verified, 5 needs review, 2 rejected), and 0 of 192 forged certificates verified.",
  "For staff: unsure KYC cases need two people to sign off, dropped leads are ranked for a call-back (AUC 0.71 on held-out folds), and a churn watchlist flags orders to check in on.",
- "Identifiers are stripped from chat before storage. Document images stay in memory and never reach the LLM."], 11)
-# Field test: two owners trying the app (shared with their permission). Same height, side by side, caption below.
+ "Identifiers are stripped from chat before storage. Document images stay in memory and never reach the LLM."], 9)
+ARCH_W = 4.1
+s.shapes.add_picture(str(ROOT / "docs" / "architecture.png"), I(5.2), I(.85), width=I(ARCH_W))  # 2120 x 1500, so 2.9 inches tall
+# Field test: two owners trying the app (shared with their permission), under the diagram.
 FT = ROOT / "docs" / "field_test"
-s.shapes.add_picture(str(FT / "owner_1.jpg"), I(7.0), I(2.6), height=I(1.85))
-s.shapes.add_picture(str(FT / "owner_2.jpg"), I(7.0 + 1.85 * 1200 / 1600 + .08), I(2.6), height=I(1.85))
-text(s, 7.0, 4.5, 2.3, .4, "Field test with local shop owners, who tried the advisor and quote.", 9, MUTE)
+s.shapes.add_picture(str(FT / "owner_1.jpg"), I(5.2), I(3.85), height=I(1.0))
+s.shapes.add_picture(str(FT / "owner_2.jpg"), I(5.2 + 1.0 * 1200 / 1600 + .06), I(3.85), height=I(1.0))
+text(s, 6.6, 3.85, 2.7, .45, "Field test with local shop owners, who tried the advisor and quote.", 9, MUTE)
 FIELD_FOLDER = "https://drive.google.com/drive/folders/1vkd6UkQP3N9vwDneKnACWilRUryvzpsc?usp=sharing"
-lk = text(s, 7.0, 4.86, 2.3, .22, "More from the field test (Google Drive)", 9, RED)
+lk = text(s, 6.6, 4.4, 2.7, .22, "More from the field test (Google Drive)", 9, RED)
 lk.text_frame.paragraphs[0].runs[0].hyperlink.address = FIELD_FOLDER; lk.text_frame.paragraphs[0].runs[0].font.underline = True
 
 # 5 Signals and value (10-slide deck: 7 + 8)
@@ -152,6 +178,7 @@ table(s, .5, .9, 8.8, [["Risk","Mitigation"],
  ["Install capacity limits the gains","98 drops are install delays; tracker doesn't fix capacity. Indore and Mysuru take 8+ days from KYC to activation vs 4.8 overall (under 10 customers each, so verify)"],
  ["Channel conflict with partners","Partners keep attribution and install work; specialists get hand-offs"]], [3,5.8], 12, .42)
 text(s, .5, 3.65, 8.8, .9, "Ask: approve a pilot in professional offices, Tier 1 cities, with real registry access, then decide on Phase 2 from measured recovery.", 14, RED, True)
+links(s, .5, 4.45, 8.8, .3, 11, RED, lead="See it for yourself:  ")
 
 # Move the blank template content slide out: it held only the background
 ids = p.slides._sldIdLst; el = list(ids)[1]; p.part.drop_rel(el.rId); ids.remove(el)

@@ -66,10 +66,34 @@ def bars(s, x, y, w, h, cats, vals, title, kind=XL_CHART_TYPE.BAR_CLUSTERED, fmt
     if vmax: ch.value_axis.maximum_scale = vmax
     if unit: ch.value_axis.major_unit = unit  # PowerPoint hides this axis; Keynote and others draw it, so keep its steps round
 
+LINKS = [("Demo video (YouTube)", "https://youtu.be/aW-PcuTWnQo"),
+         ("Code (GitHub)", "https://github.com/adityamalik24/udyam-digital"),
+         ("Privacy note and field test (Google Drive)", "https://drive.google.com/file/d/1Piu8Oyp2Cy36tFQMDZdK8GTTN_lxKR4d/view?usp=drive_link")]
+
+def links(s, x, y, w, h, size, color, stacked=False, lead=None):
+    """Clickable links: one per line (stacked) or in one line separated by dots."""
+    b = s.shapes.add_textbox(I(x), I(y), I(w), I(h)); tf = b.text_frame; tf.word_wrap = True
+    tf.margin_left = tf.margin_right = tf.margin_top = tf.margin_bottom = 0
+    para = tf.paragraphs[0]
+    if stacked: para.space_after = Pt(3)
+    def run(t, url=None):
+        r = para.add_run(); r.text = t; r.font.size = Pt(size); r.font.color.rgb = color; r.font.name = "Calibri"
+        if url: r.hyperlink.address = url; r.font.underline = True
+        else: r.font.bold = True
+    if lead: run(lead)
+    for i, (label, url) in enumerate(LINKS):
+        if i and stacked: para = tf.add_paragraph(); para.space_after = Pt(3)
+        elif i: run("  ·  ")
+        run(label, url)
+    return b
+
 # 1 Title (template slide 1)
 s1 = p.slides[0]
 text(s1, .65, 2.75, 3.6, .5, "Udyam Digital", 26, WHITE, True)
 text(s1, .65, 3.3, 3.5, .9, ["A small business goes digital in one sitting, on a phone", "Team RNG. Enterprise Track A: business case"], 13, WHITE)
+panel = s1.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, I(.55), I(4.15), I(3.4), I(.82)); panel.adjustments[0] = .12
+panel.fill.solid(); panel.fill.fore_color.rgb = WHITE; panel.line.fill.background(); panel.shadow.inherit = False  # links show in the viewer's link colour, so give them a light background
+links(s1, .7, 4.22, 3.2, .7, 10, RED, stacked=True)
 
 # 2 Problem
 s = slide("Only 7.4% of small-business leads activate, at ₹15,053 each")
@@ -160,6 +184,7 @@ table(s, .5, .9, 8.8, [["Risk","Mitigation"],
  ["Install capacity limits the gains","98 drops are install delays; tracker doesn't fix capacity. Indore and Mysuru take 8+ days from KYC to activation vs 4.8 overall (under 10 customers each, so verify)"],
  ["Channel conflict with partners","Partners keep attribution and install work; specialists get hand-offs"]], [3,5.8], 12, .42)
 text(s, .5, 3.65, 8.8, .9, "Ask: approve a pilot in professional offices, Tier 1 cities, with real registry access, then decide on Phase 2 from measured recovery.", 14, RED, True)
+links(s, .5, 4.45, 8.8, .3, 11, RED, lead="See it for yourself:  ")
 
 # Move the blank template content slide out: it held only the background
 ids = p.slides._sldIdLst; el = list(ids)[1]; p.part.drop_rel(el.rId); ids.remove(el)
