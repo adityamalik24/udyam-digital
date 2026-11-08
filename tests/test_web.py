@@ -871,3 +871,116 @@ def test_page_loads_while_the_translate_endpoint_runs(monkeypatch):
     waited = time.time() - t0
     t.join()
     assert waited < .4 and r.status_code == 200 and v["translate"], waited
+
+
+# ---- Find my order: inputs as people really type them, and what must never happen ----------------------------------
+def test_find_my_order_accepts_hindi_digits_and_any_mobile_format(monkeypatch):
+    monkeypatch.setattr(server, "_finds", [])
+    a, oid = _owner_with_order("9811122233")
+    for typed in ("९८१११२२२३३", "(+91) 98111 22233", "098111-22233", "98111.22233"):
+        b = client()
+        r = post(b, "/api/track/find", {"order": f"Order {oid}", "phone": typed})
+        assert r.status_code == 200 and r.json()["to"] == "••••••2233", (typed, r.text)
+    hindi_code = r.json()["demo_code"].translate(str.maketrans("0123456789", "०१२३४५६७८९"))
+    assert post(b, "/api/track/verify", {"code": hindi_code}).json()["done"]  # a code typed in Hindi digits works
+    assert b.get("/api/view/tracker").json()["order"] == oid
+
+
+def test_find_my_order_never_crashes_or_leaks(monkeypatch):
+    monkeypatch.setattr(server, "_finds", [])
+    a, oid = _owner_with_order("9822233344")
+    wrong_phone = post(client(), "/api/track/find", {"order": oid, "phone": "9822233345"})
+    no_such_order = post(client(), "/api/track/find", {"order": oid + 9999, "phone": "9822233344"})
+    assert wrong_phone.status_code == no_such_order.status_code == 404 and wrong_phone.json() == no_such_order.json()  # can't tell which was wrong
+    for bad in ({"order": [oid + 9999], "phone": 9822233399}, {"order": {"x": 1}, "phone": None}, {"order": "9" * 50, "phone": "1" * 500}, {"order": oid, "phone": ["98222", "33344"]}, {}):
+        assert post(client(), "/api/track/find", bad).status_code in (400, 404)
+    c = client()
+    for code in ("١٢٣٤٥٦", "🙂" * 10, "1" * 5000, None, 123456, ["1"]):
+        assert post(c, "/api/track/verify", {"code": code}).status_code == 400  # never a server error
+    assert "expired" in post(client(), "/api/track/verify", {"code": "123456"}).json()["problem"]  # nothing asked for yet
+
+
+def test_find_my_order_own_order_new_code_and_erasure(monkeypatch):
+    monkeypatch.setattr(server, "_finds", [])
+    a, oid = _owner_with_order("9833344455")
+    assert post(a, "/api/track/find", {"order": oid, "phone": "9833344455"}).json()["done"]  # already this browser's order: no code needed
+    b = client()
+    first = post(b, "/api/track/find", {"order": oid, "phone": "9833344455"}).json()["demo_code"]
+    second = post(b, "/api/track/find", {"order": oid, "phone": "9833344455"}).json()["demo_code"]
+    if first != second: assert post(b, "/api/track/verify", {"code": first}).status_code == 400  # asking again replaces the old code
+    assert post(b, "/api/track/verify", {"code": second}).json()["done"]
+    c = client(); post(c, "/api/language", {"lang": "hi"})
+    assert c.get("/api/view/tracker").json()["find"]["title"] == "मेरा ऑर्डर खोजें"
+    assert post(a, "/api/data/erase", {"sure": True}).status_code == 200
+    assert post(client(), "/api/track/find", {"order": oid, "phone": "9833344455"}).status_code == 404  # erased: not findable
+
+
+def test_contact_and_callback_forms_accept_hindi_digits():
+    c = client()
+    r = post(c, "/api/contact", {"name": "रवि कुमार", "phone": "९८७६५४३२१०", "agree": True})
+    assert r.status_code == 200 and c.get("/api/view/consent").json()["contact"]["saved"]["phone"] == "9876543210"
+    assert post(client(), "/api/contact", {"name": "Ravi", "phone": "98765 4321", "agree": True}).status_code == 400
+
+
+# ---- Evidence tab: honest results, no double runs, no hangs ---------------------------------------------------------
+def _wait_evidence(seconds=60):
+    end = time.time() + seconds
+    while server._evidence["state"] == "running" and time.time() < end: time.sleep(.2)
+
+
+def test_evidence_reports_failures_and_timeouts_honestly(monkeypatch, tmp_path):
+    ok_py, bad_py, slow_py = tmp_path / "ok.py", tmp_path / "bad.py", tmp_path / "slow.py"
+    ok_py.write_text("print('5/5 passed')")
+    bad_py.write_text("print('FAIL s7 Wrong bundle for a clinic'); print('4/5 passed'); raise SystemExit(1)")
+    slow_py.write_text("import time; time.sleep(30)")
+    monkeypatch.setattr(server, "EVIDENCE", [("Good set", [str(ok_py)]), ("Broken set", [str(bad_py)]), ("Hung set", [str(slow_py)])])
+    monkeypatch.setattr(server, "EVIDENCE_TIMEOUT", 2)
+    monkeypatch.setattr(server, "_evidence", {"state": "idle", "done": 0, "rows": []})
+    c = client(); post(c, "/api/partner/evidence"); _wait_evidence()
+    e = c.get("/api/view/partner").json()["evidence"]
+    rows = {r[0]: r for r in e["rows"]}
+    assert rows["Good set"][1] == "✓ 5/5 passed"
+    assert rows["Broken set"][1] == "✗ 4/5 passed" and "Wrong bundle for a clinic" in rows["Broken set"][3]
+    assert rows["Hung set"][1] == "✗ Timed out"
+    assert not e["ok"] and e["summary"] == "Some checks failed: see the table."
+
+
+def test_evidence_starts_one_run_however_many_clicks(monkeypatch, tmp_path):
+    import threading
+    runs = []
+    class SlowState(dict):  # widens the gap between "is it running?" and "start it", where a double start would slip in
+        def __getitem__(self, k):
+            v = super().__getitem__(k)
+            if k == "state": time.sleep(.05)  # read, then delay acting on it: the moment a second click could also read "idle"
+            return v
+    monkeypatch.setattr(server, "_evidence", SlowState(state="idle", done=0, rows=[]))
+    monkeypatch.setattr(server, "_run_evidence", lambda: (runs.append(1), time.sleep(.5), server._evidence.update(state="done")))
+    clicks = [threading.Thread(target=lambda: post(client(), "/api/partner/evidence")) for _ in range(8)]
+    for t in clicks: t.start()
+    for t in clicks: t.join()
+    _wait_evidence()
+    assert len(runs) == 1
+
+
+def test_evidence_is_staff_only_when_locked(monkeypatch):
+    monkeypatch.setenv("PARTNER_PASSCODE", "staff-2026")
+    c = client()
+    assert post(c, "/api/partner/evidence").status_code == 401 and c.get("/api/view/partner").status_code == 401
+
+
+def test_fresh_identity_keeps_hindi_everywhere(monkeypatch):
+    """Reopening an order or erasing data on the Hindi page gave a page half in English, then flipped it to English."""
+    monkeypatch.setattr(server, "_finds", [])
+    a, oid = _owner_with_order("9844455566")
+    b = client(); post(b, "/api/language", {"lang": "hi"})
+    code = post(b, "/api/track/find", {"order": oid, "phone": "9844455566"}).json()["demo_code"]
+    assert post(b, "/api/track/verify", {"code": code}).json()["done"]
+    for page in ("tracker", "tracker", "advisor", "consent"):  # twice: the second load is where it used to flip
+        v = b.get(f"/api/view/{page}").json()
+        assert v["lang"] == "hi" and v["nav"]["data"] == "आपका डेटा", page
+    t = b.get("/api/view/tracker").json()
+    from core.labels import L
+    assert t["order_no"].startswith("ऑर्डर नंबर") and [st["label"] for st in t["journey"]] == [L["hi"]["steps"][st["key"]] for st in t["journey"]]
+    e = client(); post(e, "/api/language", {"lang": "hi"}); post(e, "/api/contact", {"name": "रवि", "phone": "9855566677", "agree": True})
+    assert post(e, "/api/data/erase", {"sure": True}).status_code == 200
+    for _ in range(2): assert e.get("/api/view/data").json()["lang"] == "hi"

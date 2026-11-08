@@ -85,8 +85,10 @@ def get_or_create(sid: str | None) -> tuple[str, Session, bool]:
 def reset(sid: str, ui_lang: str) -> Session:
     """A fresh identity after erasure: nothing of the old session stays."""
     with _guard:
-        _sessions[sid] = Session(ui_lang=ui_lang, synced_lang=ui_lang)
-        return _sessions[sid]
+        fresh = Session(ui_lang=ui_lang, synced_lang=ui_lang)
+        fresh.advisor.profile.language = ui_lang  # the chat starts in the page's language, or the page would flip back to English
+        _sessions[sid] = fresh
+        return fresh
 
 
 def pending_bytes() -> int:

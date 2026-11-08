@@ -10,15 +10,29 @@ PHONE = re.compile(r"^(?:\+?91|0)?([6-9]\d{9})$")
 EMAIL = re.compile(r"^[^@\s]+@[^@\s]+\.[A-Za-z]{2,}$")
 
 
+def mobile(text: str) -> str | None:
+    """A 10-digit Indian mobile, read the way people type it: spaces, dashes, dots or brackets, +91 or 0 in front,
+    and Hindi or other Indic digits. Anything else (letters, too few digits) is not a number."""
+    raw = G.latin_digits(text or "").strip()
+    if not raw or re.search(r"[^0-9\s().+-]", raw): return None
+    m = PHONE.match(re.sub(r"[\s().-]", "", raw))
+    return m.group(1) if m else None
+
+
+def digits(text: str) -> str:
+    """Only the digits 0-9, with Indic digits converted first: safe to compare with a code we sent."""
+    return re.sub(r"[^0-9]", "", G.latin_digits(text or ""))
+
+
 def clean(phone: str, email: str) -> tuple[str | None, str | None, str | None]:
     """Returns (phone, email, error code). At least one valid contact is needed."""
-    raw = re.sub(r"[\s-]", "", phone or "")
+    typed = (phone or "").strip()
     mail = (email or "").strip()
-    m = PHONE.match(raw)
-    if raw and not m: return None, None, "bad_phone"
+    number = mobile(typed)
+    if typed and not number: return None, None, "bad_phone"
     if mail and not EMAIL.match(mail): return None, None, "bad_email"
-    if not raw and not mail: return None, None, "missing"
-    return (m.group(1) if m else None), (mail or None), None
+    if not typed and not mail: return None, None, "missing"
+    return number, (mail or None), None
 
 
 def save(user: str, name: str, phone: str | None, email: str | None, best_time: str, note: str, profile_json: str, reason: str, language: str) -> None:

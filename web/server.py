@@ -43,6 +43,7 @@ EVIDENCE = [("Advisor scenarios: main set", ["tests/run_scenarios.py", "tests/ad
             ("Security probes (red team)", ["tests/red_team.py"])]
 EVIDENCE_TIMEOUT = 900
 _evidence: dict = {"state": "idle", "done": 0, "rows": []}
+_runs_guard = threading.Lock()  # two clicks at the same moment must start one run, not two
 STAFF_PATHS = ("/api/partner/", "/api/view/partner")
 STAFF_TRIES_PER_MINUTE = 10  # wrong passcodes across everyone, so it can't be guessed quickly
 _staff_fails: list = []
@@ -116,6 +117,7 @@ def view(page: str, request: Request):
     fn = {"home": V.home, "advisor": V.advisor, "quote": V.quote, "consent": V.consent_page, "kyc": V.kyc, "tracker": V.tracker, "data": V.data_page}.get(page)
     if not fn: raise HTTPException(404)
     with s.lock:
+        V.sync_language(s)  # settle the language before any text is chosen, so a page is never half one language
         return fn(s)
 
 
@@ -774,17 +776,19 @@ def _run_evidence() -> None:
 @app.post("/api/partner/evidence")
 def partner_evidence():
     if evidence_view()["state"] == "unavailable": raise HTTPException(409, "tests_missing")
-    if _evidence["state"] != "running":
-        _evidence.update(state="running", done=0, rows=[])
-        threading.Thread(target=_run_evidence, daemon=True).start()
+    with _runs_guard:
+        if _evidence["state"] != "running":
+            _evidence.update(state="running", done=0, rows=[])
+            threading.Thread(target=_run_evidence, daemon=True).start()
     return evidence_view()
 
 
 @app.post("/api/partner/selfcheck")
 def partner_selfcheck():
-    if _selfcheck["state"] != "running":
-        _selfcheck.update(state="running", done=0, rows=[])
-        threading.Thread(target=_run_selfcheck, daemon=True).start()
+    with _runs_guard:
+        if _selfcheck["state"] != "running":
+            _selfcheck.update(state="running", done=0, rows=[])
+            threading.Thread(target=_run_selfcheck, daemon=True).start()
     return selfcheck_view()
 
 

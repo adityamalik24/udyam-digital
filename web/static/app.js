@@ -224,7 +224,7 @@ function drawCallback(c) {
       try { const nv = await api("/api/advisor/callback", data); formState = {}; drawAdvisor(nv); } catch (err) { problem.replaceChildren(note("danger", err.message)); }
     } },
       field(c.name, h("input", { type: "text", autocomplete: "name", maxlength: "80", value: data.name || "", oninput: e => data.name = e.target.value })),
-      field(c.phone, h("input", { type: "tel", autocomplete: "tel", maxlength: "16", value: data.phone || "", oninput: e => data.phone = e.target.value })),
+      field(c.phone, h("input", { type: "tel", autocomplete: "tel", maxlength: "24", value: data.phone || "", oninput: e => data.phone = e.target.value })),
       field(c.email, h("input", { type: "email", autocomplete: "email", maxlength: "120", value: data.email || "", oninput: e => data.email = e.target.value })),
       field(c.best, select(c.times, data.best || "Any time", e => data.best = e.target.value)),
       field(c.note, h("textarea", { maxlength: "200", rows: "2", value: data.note || "", oninput: e => data.note = e.target.value })),
@@ -398,7 +398,7 @@ function drawContact(c) {
       try { const nv = await api("/api/contact", d); contactEditing = false; drawConsent(nv); document.getElementById("contact")?.scrollIntoView({ block: "nearest" }); } catch (err) { problem.replaceChildren(note("danger", err.message)); }
     } },
       field(c.name, h("input", { type: "text", autocomplete: "name", maxlength: "60", value: d.name, oninput: e => d.name = e.target.value })),
-      field(c.phone, h("input", { type: "tel", autocomplete: "tel", inputmode: "numeric", maxlength: "16", value: d.phone, oninput: e => d.phone = e.target.value })),
+      field(c.phone, h("input", { type: "tel", autocomplete: "tel", inputmode: "numeric", maxlength: "24", value: d.phone, oninput: e => d.phone = e.target.value })),
       c.saved ? null : check(c.agree, false, e => d.agree = e.target.checked),
       h("p", { class: "small muted" }, c.if_no), problem,
       h("button", { type: "submit", class: "btn secondary full" }, c.save)));
@@ -498,13 +498,15 @@ let findState = { order: "", phone: "", code: "", sent: null };
 function drawFind(f) {
   const problem = h("div");
   const fail = (err) => problem.replaceChildren(note("danger", err.message));
+  // Each form's button stays disabled while its request is in flight, so a double tap can't send two codes.
+  const busy = (e) => { const b = e.target.querySelector("button[type=submit]"); if (!b || b.disabled) return null; b.disabled = true; return b; };
   const ask = async (e) => {
-    if (e) e.preventDefault();
-    try { const r = await api("/api/track/find", { order: findState.order, phone: findState.phone }); if (r.done) { findState = { order: "", phone: "", code: "", sent: null }; route(); return; } findState.sent = r; findState.code = ""; route(); } catch (err) { fail(err); }
+    e.preventDefault(); const b = busy(e); if (!b) return;
+    try { const r = await api("/api/track/find", { order: findState.order, phone: findState.phone }); if (r.done) { findState = { order: "", phone: "", code: "", sent: null }; route(); return; } findState.sent = r; findState.code = ""; route(); } catch (err) { b.disabled = false; fail(err); }
   };
   const open = async (e) => {
-    e.preventDefault();
-    try { await api("/api/track/verify", { code: findState.code }); findState = { order: "", phone: "", code: "", sent: null }; route(); } catch (err) { fail(err); }
+    e.preventDefault(); const b = busy(e); if (!b) return;
+    try { await api("/api/track/verify", { code: findState.code }); findState = { order: "", phone: "", code: "", sent: null }; route(); } catch (err) { b.disabled = false; fail(err); }
   };
   const sent = findState.sent;
   return h("section", { class: "card stack", id: "find" }, h("h2", null, f.title), h("p", { class: "small" }, f.intro),
@@ -517,7 +519,7 @@ function drawFind(f) {
         button(f.again, () => { findState.sent = null; route(); }, "btn text"))
       : h("form", { class: "stack", onsubmit: ask },
         field(f.order, h("input", { type: "text", inputmode: "numeric", maxlength: "12", value: findState.order, oninput: e => findState.order = e.target.value })),
-        field(f.phone, h("input", { type: "tel", inputmode: "numeric", autocomplete: "tel", maxlength: "16", value: findState.phone, oninput: e => findState.phone = e.target.value })),
+        field(f.phone, h("input", { type: "tel", inputmode: "numeric", autocomplete: "tel", maxlength: "24", value: findState.phone, oninput: e => findState.phone = e.target.value })),
         problem, h("button", { type: "submit", class: "btn secondary full" }, f.send)));
 }
 function drawTracker(v) {

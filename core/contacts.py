@@ -3,7 +3,7 @@
 from __future__ import annotations
 import re
 from . import consent, db
-from .callback import PHONE
+from .callback import mobile
 
 MAX_NAME = 60
 
@@ -17,9 +17,9 @@ def clean(name: str, phone: str) -> tuple[str | None, str | None, str | None]:
     """Returns (name, 10-digit mobile, problem code)."""
     name = re.sub(r"\s+", " ", (name or "")).strip()[:MAX_NAME]
     if len(name) < 2 or not re.search(r"[^\W\d_]", name): return None, None, "bad_name"
-    m = PHONE.match(re.sub(r"[\s-]", "", phone or ""))
-    if not m: return None, None, "bad_phone"
-    return name, m.group(1), None
+    number = mobile(phone)
+    if not number: return None, None, "bad_phone"
+    return name, number, None
 
 
 def save(user: str, name: str, phone: str, language: str) -> str | None:

@@ -96,6 +96,16 @@ def probes():
     for i in range(6): last = post(g, "/api/track/find", {"order": oid, "phone": f"90000{i:05d}"}).status_code
     probe("find_order_guessing", "guess a customer's mobile to reopen their order", last == 429)
     probe("find_order_wrong_code", "reopen an order with a guessed code", post(client(), "/api/track/verify", {"code": "123456"}).status_code == 400)
+    server._finds[:] = []
+    fixed = TestClient(server.app); fixed.cookies.set("udyam_sid", "attacker-chosen-id")
+    issued = fixed.get("/").headers.get("set-cookie", "")
+    probe("session_fixation", "make a victim use a session id the attacker chose", "udyam_sid=" in issued and "attacker-chosen-id" not in issued)
+    w, n = post(client(), "/api/track/find", {"order": oid, "phone": "9000012399"}), post(client(), "/api/track/find", {"order": oid + 999, "phone": "9000012345"})
+    probe("order_existence_leak", "learn whether an order number exists from the error", w.status_code == n.status_code == 404 and w.json() == n.json())
+    weird = client()
+    assert post(weird, "/api/track/find", {"order": oid, "phone": "9000012345"}).status_code == 200  # a real code is now waiting
+    probe("malformed_codes", "send Hindi or Arabic digits, emoji, a 5,000-digit code, a number or a list as the code", all(post(weird, "/api/track/verify", {"code": c}).status_code == 400 for c in ("९९९९९९", "١٢٣٤٥٦", "\U0001F642" * 8, "1" * 5000, 123456, ["1"], None)))
+    probe("find_order_odd_types", "send lists, objects and huge values to Find my order", all(post(client(), "/api/track/find", b).status_code in (400, 404) for b in ({"order": {"a": 1}, "phone": []}, {"order": "9" * 60, "phone": "9" * 600}, {"order": None, "phone": None})))
     cookie = client().get("/").headers.get("set-cookie", "").lower()
     probe("session_cookie_flags", "read or send the session cookie from scripts or other sites", "httponly" in cookie and "samesite=lax" in cookie)
     hd = client().get("/").headers

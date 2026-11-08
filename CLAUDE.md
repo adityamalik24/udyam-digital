@@ -63,7 +63,8 @@ pytest -q
 python tests/run_scenarios.py
 python tests/run_scenarios.py tests/advisor_teammate.yaml
 python tests/kyc_stress.py        # slow: degraded uploads and forgeries
-python tests/red_team.py          # 28 scripted attacks on the web app (pytest runs it too)
+python tests/red_team.py          # 32 scripted attacks on the web app (pytest runs it too)
+python tests/a11y_check.py        # accessibility audit of 19 page states (needs playwright, axe-playwright-python)
 # CI (.github/workflows/tests.yml) runs pytest and all four scenario sets on every push, with no API key
 python tests/live_check.py 8      # spends free Gemini quota
 uvicorn web.server:app --port 8000  # the web front end
