@@ -198,8 +198,16 @@ def advisor(s: Session) -> dict:
     return {**chrome(s), "title": L[s.ui_lang]["advisor"], "chat": chat["messages"], "translate": chat["translate"], "translating": chat["translating"], "kept": chat["kept"], "chips": [label for label, _ in quick_replies(a)],
             "placeholder": W("Type or tap the mic", "लिखें या माइक दबाएँ"), "listen": W("Read aloud", "सुनें"), "stop_listen": W("Stop reading", "पढ़ना रोकें"), "send": W("Send", "भेजें"), "typing": W("Thinking…", "सोच रहे हैं…"),
             "has_plan": has_plan, "see_quote": W("See my quote", "मेरा कोटेशन देखें"), "fallback": W("AI wording is unavailable right now, so replies use standard text. Plans and prices are unaffected.", "AI अभी उपलब्ध नहीं है, इसलिए जवाब सामान्य शब्दों में हैं। प्लान और कीमतों पर कोई असर नहीं।") if llm.last_error else None,
-            "ai_line": W("Replies are written with AI. Manage this in", "जवाब AI की मदद से लिखे जाते हैं। इसे यहाँ बदलें:"),
+            "ai_line": ai_line(s),
             "form": short_form(s) if not has_plan and not a.handoff else None, "callback": callback_view(s), "voice": voice(s)}
+
+
+def ai_line(s: Session) -> str:
+    """The one line under the chat. It says what really happens: no key on the server, or AI switched off, means no AI."""
+    W = say(s)
+    if llm.client() is None: return W("Replies on this server come from our rules, without AI. More in", "इस सर्वर पर जवाब हमारे नियमों से बनते हैं, AI के बिना। ज़्यादा जानकारी:")
+    if s.advisor.no_ai: return W("You turned AI off, so replies come from our rules. Change this in", "आपने AI बंद किया है, इसलिए जवाब हमारे नियमों से बनते हैं। इसे यहाँ बदलें:")
+    return W("Replies are written with AI. Manage this in", "जवाब AI की मदद से लिखे जाते हैं। इसे यहाँ बदलें:")
 
 
 def ai_settings(s: Session) -> dict:

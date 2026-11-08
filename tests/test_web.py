@@ -718,3 +718,13 @@ def test_frame_ancestors_only_for_a_named_https_site(monkeypatch):
     assert "frame-ancestors https://huggingface.co;" in c.get("/").headers["content-security-policy"]
     monkeypatch.setenv("FRAME_ANCESTORS", "* 'unsafe-inline' http://evil.example")
     assert "frame-ancestors 'none'" in c.get("/").headers["content-security-policy"]  # junk is ignored, not passed through
+
+
+def test_ai_line_says_what_really_happens(monkeypatch):
+    c = client(); c.get("/api/view/advisor")
+    monkeypatch.setattr(llm, "client", lambda: None)
+    assert "without AI" in c.get("/api/view/advisor").json()["ai_line"]  # no key on the server: nothing goes to Gemini
+    monkeypatch.setattr(llm, "client", lambda: object())
+    assert c.get("/api/view/advisor").json()["ai_line"].startswith("Replies are written with AI")
+    post(c, "/api/advisor/ai", {"on": False})
+    assert "You turned AI off" in c.get("/api/view/advisor").json()["ai_line"]
