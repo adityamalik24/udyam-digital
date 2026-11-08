@@ -124,6 +124,9 @@ FT = ROOT / "docs" / "field_test"
 s.shapes.add_picture(str(FT / "owner_1.jpg"), I(7.0), I(2.6), height=I(1.85))
 s.shapes.add_picture(str(FT / "owner_2.jpg"), I(7.0 + 1.85 * 1200 / 1600 + .08), I(2.6), height=I(1.85))
 text(s, 7.0, 4.5, 2.3, .4, "Field test with local shop owners, who tried the advisor and quote.", 9, MUTE)
+FIELD_FOLDER = "https://drive.google.com/drive/folders/1vkd6UkQP3N9vwDneKnACWilRUryvzpsc?usp=sharing"
+lk = text(s, 7.0, 4.86, 2.3, .22, "More from the field test (Google Drive)", 9, RED)
+lk.text_frame.paragraphs[0].runs[0].hyperlink.address = FIELD_FOLDER; lk.text_frame.paragraphs[0].runs[0].font.underline = True
 
 # 7 Signals
 s = slide("Customers who chase status more churn more")
