@@ -94,7 +94,7 @@ function shell(v, ...content) {
   document.documentElement.lang = v.lang;
   document.title = (v.title ? v.title + " · " : "") + v.nav.title;
   const wide = location.pathname === "/partner";
-  const setLang = (lang) => async () => { if (lang === v.lang) return; try { await api("/api/language", { lang }); } catch (err) { showError(err); return; } route(); };
+  const setLang = (lang) => () => switchLanguage(lang, v.lang);
   const newChat = async () => {
     if (!window.confirm(v.nav.new_confirm)) return;
     try { await api("/api/advisor/new", {}); draft = ""; quoteDraft = ""; personOpen = false; voiceNote = null; go("/advisor")(); } catch (err) { showError(err); }
@@ -669,6 +669,26 @@ function drawStaffLogin(message) {
 
 const ROUTES = { "/": ["home", drawHome], "/advisor": ["advisor", drawAdvisor], "/quote": ["quote", drawQuote], "/consent": ["consent", drawConsent], "/kyc": ["kyc", drawKyc], "/tracker": ["tracker", drawTracker], "/data": ["data", drawData], "/partner": ["partner", drawPartner] };
 let lastPath = null, translating = false;
+// The language toggle answers at once: the chosen button lights up on the click, and quick clicks merge into one
+// request for wherever the owner ends up. The page redraws once the server has switched.
+let langWanted = null, langBusy = false, langShown = null;
+async function switchLanguage(lang, current) {
+  langWanted = lang;
+  document.querySelectorAll(".langs button").forEach(b => b.setAttribute("aria-pressed", String(b.lang === lang)));
+  if (langBusy) return;
+  langBusy = true;
+  let server = langShown || current, failed = null;
+  try {
+    while (langWanted && langWanted !== server) {
+      const want = langWanted;
+      await api("/api/language", { lang: want });
+      server = want;
+    }
+  } catch (err) { failed = err; }
+  langBusy = false; langWanted = null;
+  await route();
+  if (failed) showError(failed);
+}
 async function route() {
   clearTimeout(pollTimer);
   const [name, draw] = ROUTES[location.pathname] || ROUTES["/"];
@@ -677,6 +697,8 @@ async function route() {
   try {
     const v = await api(`/api/view/${name}`, undefined, "GET");
     if (token !== renderToken) return;
+    langShown = v.lang || langShown;
+    if (langBusy) return;  // a language switch is still on its way: its own redraw follows, so don't flash the old language
     draw(v);
     // After a language switch, earlier replies are translated on the server, then the page redraws once.
     if ((v.translate || (v.chat && v.chat.translate)) && !translating) {

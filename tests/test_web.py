@@ -810,3 +810,64 @@ def test_ai_notice_on_your_data_page_matches_reality(monkeypatch):
     assert "no AI key" in c.get("/api/view/data").json()["ai"]["off_note"]
     monkeypatch.setattr(llm, "client", lambda: object())
     assert c.get("/api/view/data").json()["ai"]["off_note"] is None
+
+
+def _session_with_hindi_replies(n=3):
+    from web.session import Session
+    s = Session(ui_lang="en")
+    for k in range(n):
+        s.chat += [{"role": "user", "text": f"q{k}"}, {"role": "assistant", "text": f"हिंदी जवाब {k}", "lang": "hi"}]
+    s.switched_before = len(s.chat)
+    return s
+
+
+def test_translation_never_blocks_the_session(monkeypatch):
+    """The language toggle froze for seconds while earlier replies were translated: the lock was held during model calls."""
+    import threading
+    from core import advisor
+    from web import views
+    monkeypatch.setattr(advisor, "translate_reply", lambda text, code, client=None: (time.sleep(.4), ("EN " + text, "ok"))[1])
+    s = _session_with_hindi_replies()
+    t = threading.Thread(target=views.translate_chat, args=(s,)); t.start(); time.sleep(.1)
+    t0 = time.time()
+    with s.lock: pass
+    assert time.time() - t0 < .2  # a page load or language switch gets in straight away
+    t.join()
+    assert sorted(v for (i, lang), v in s.tr.items() if lang == "en") == ["EN हिंदी जवाब 0", "EN हिंदी जवाब 1", "EN हिंदी जवाब 2"]
+    assert not s.translating
+
+
+def test_translation_stops_on_switch_or_new_chat(monkeypatch):
+    import threading
+    from core import advisor
+    from web import views
+    calls = []
+    monkeypatch.setattr(advisor, "translate_reply", lambda text, code, client=None: (calls.append(text), time.sleep(.3), ("EN " + text, "ok"))[2])
+    s = _session_with_hindi_replies(4)
+    t = threading.Thread(target=views.translate_chat, args=(s,)); t.start(); time.sleep(.1)
+    with s.lock: s.ui_lang = "hi"  # the owner switched back
+    t.join()
+    assert len(calls) == 1  # no quota spent on the old language after the switch
+    s2 = _session_with_hindi_replies(2)
+    t = threading.Thread(target=views.translate_chat, args=(s2,)); t.start(); time.sleep(.1)
+    with s2.lock: s2.chat, s2.tr, s2.switched_before = [], {}, 0  # what "New chat" does
+    t.join()
+    assert s2.tr == {}  # a finished translation is never attached to the new conversation
+
+
+def test_page_loads_while_the_translate_endpoint_runs(monkeypatch):
+    """End to end: a translation running for this browser must not hold up its page loads or language switches."""
+    import threading
+    from core import advisor
+    monkeypatch.setattr(advisor, "translate_reply", lambda text, code, client=None: (time.sleep(.5), ("EN " + text, "ok"))[1])
+    monkeypatch.setattr(llm, "client", lambda: object())
+    c = client(); c.get("/api/view/advisor")
+    post(c, "/api/language", {"lang": "hi"})
+    for m in ("मेरा क्लिनिक है", "दिल्ली", "6 लोग"): post(c, "/api/advisor/message", {"text": m})
+    post(c, "/api/language", {"lang": "en"})
+    other = client(); other.cookies = c.cookies  # the same browser, a second request in flight
+    t = threading.Thread(target=lambda: post(other, "/api/advisor/translate")); t.start(); time.sleep(.15)
+    t0 = time.time(); v = c.get("/api/view/advisor").json(); r = post(c, "/api/language", {"lang": "hi"})
+    waited = time.time() - t0
+    t.join()
+    assert waited < .4 and r.status_code == 200 and v["translate"], waited

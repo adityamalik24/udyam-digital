@@ -136,9 +136,7 @@ async def language(request: Request):
 
 @app.post("/api/advisor/translate")
 def advisor_translate(request: Request):
-    s = sess(request)
-    with s.lock:
-        V.translate_chat(s)
+    V.translate_chat(sess(request))  # takes the session lock itself, only briefly: see its docstring
     return {"ok": True}
 
 

@@ -23,6 +23,7 @@ class Session:
     advisor: State = field(default_factory=State)
     chat: list = field(default_factory=list)  # {"role", "text", "lang"}; the welcome is {"welcome": True} and drawn in the page's language
     tr: dict = field(default_factory=dict)       # (message index, language) -> translated text, or None if it couldn't be done
+    translating: bool = False                     # a translation run is in progress (views.translate_chat)
     switched_before: int = 0                      # messages before this index were on screen when the language was switched
     ui_lang: str = "en"
     synced_lang: str = "en"

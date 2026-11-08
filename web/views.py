@@ -163,14 +163,29 @@ def _to_translate(s: Session) -> list[int]:
 
 def translate_chat(s: Session) -> None:
     """Translates earlier replies into the page's language. Numbers and product names are swapped for slots first and put back
-    after, so a translation can't change a price; anything that fails the check keeps its original words."""
+    after, so a translation can't change a price; anything that fails the check keeps its original words.
+
+    The session lock is held only to read the work and to save each result, never while the model is working, so the
+    language toggle, page loads and new messages never wait behind a translation. A switch of language, or a new chat,
+    stops the run, and a result is only saved onto the same message it was made from."""
     from core.advisor import translate_reply
-    llm.ai_off.set(bool(s.advisor.no_ai))
     import time
-    for i in _to_translate(s):
-        text, how = translate_reply(s.chat[i]["text"], s.ui_lang)
-        s.tr[(i, s.ui_lang)] = text if how == "ok" else ("busy", time.time()) if how == "unavailable" else None
-        if how == "unavailable": break  # the model is busy or out of quota: the rest can wait too
+    with s.lock:
+        if s.translating: return  # one run per browser: a second tab or click waits for the next page load
+        s.translating = True
+        target, no_ai, chat = s.ui_lang, bool(s.advisor.no_ai), s.chat
+        work = [(i, chat[i]) for i in _to_translate(s)]
+    try:
+        for i, msg in work:
+            if s.ui_lang != target or s.chat is not chat: break  # switched again, or a new chat: stop spending quota here
+            llm.ai_off.set(no_ai)
+            text, how = translate_reply(msg["text"], target)
+            with s.lock:
+                if s.chat is not chat or i >= len(s.chat) or s.chat[i] is not msg: break
+                s.tr[(i, target)] = text if how == "ok" else ("busy", time.time()) if how == "unavailable" else None
+            if how == "unavailable": break  # the model is busy or out of quota: the rest can wait too
+    finally:
+        with s.lock: s.translating = False
 
 
 def chat_view(s: Session) -> dict:
